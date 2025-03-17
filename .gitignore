@@ -1,0 +1,23 @@
+# Haskell
+dist-newstyle
+.hpc
+.hsenv
+*.prof
+*.aux
+*.hp
+*.eventlog
+cabal.project.local
+cabal.project.local~
+.ghc.environment.*
+
+# Nix
+.direnv
+result*
+
+# Editors
+.dirlocals.el
+*.swp
+/.vscode
+
+# macOS
+.DS_Store

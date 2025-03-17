@@ -1,0 +1,43 @@
+cabal-version: 3.4
+name: cardano-indexer-starter
+version: 0.1.0.0
+synopsis: Template for Cardano indexers in Haskell
+homepage: https://github.com/sgillespie/cardano-indexer-starter
+license: Apache-2.0
+license-file: LICENSE
+author: Sean D Gillespie
+maintainer: sean@mistersg.net
+copyright: 2025 Sean Gillespie
+category: Data
+build-type: Simple
+extra-doc-files: CHANGELOG.md
+
+common warnings
+  ghc-options: -Wall
+
+library
+  import: warnings
+  exposed-modules: MyLib
+  build-depends: base ^>=4.18.2.1
+  hs-source-dirs: src
+  default-language: GHC2021
+
+executable cardano-indexer-starter
+  import: warnings
+  main-is: Main.hs
+  build-depends:
+    base ^>=4.18.2.1,
+    cardano-indexer-starter,
+
+  hs-source-dirs: app
+  default-language: GHC2021
+
+test-suite cardano-indexer-starter-test
+  import: warnings
+  default-language: GHC2021
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  build-depends:
+    base ^>=4.18.2.1,
+    cardano-indexer-starter,
