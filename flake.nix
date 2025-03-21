@@ -24,15 +24,13 @@
 
           shell.tools = {
             cabal = { };
-            cabal-gild = { };
-            fourmolu = { };
-            hlint = { };
             haskell-language-server = { };
           };
 
           shell.buildInputs = with pkgs; [
             nixpkgs-fmt
           ];
+          shell.inputsFrom = [ formatter.devShell ];
         };
 
         flake = project.flake { };
