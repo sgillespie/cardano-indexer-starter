@@ -1,0 +1,32 @@
+name: Haskell Build
+
+on:
+  push: {}
+  pull_request: {}
+
+permissions:
+  content: read
+
+jobs:
+  build:
+    steps:
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            accept-flake-config = true
+            allow-import-from-derivation = true
+            extra-substituters = https://cache.iog.io
+            extra-trusted-public-keys = hydra.iohk.io:f/Ea+s+dFdN+3Y/G+FDgSq+a5NEWhJGzdjvKNGv0/EQ=
+            experimental-features = nix-command flakes
+
+      - uses: actions/checkout@v4
+
+      - name: Build default artifact
+        run: nix build .\#
+
+      - name: Run checks
+        run: |
+          nix build .\#checks.x86_64-linux.formatting
