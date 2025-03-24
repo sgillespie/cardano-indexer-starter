@@ -9,6 +9,8 @@ permissions:
 
 jobs:
   build:
+    runs-on: ubuntu-latest
+
     steps:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
