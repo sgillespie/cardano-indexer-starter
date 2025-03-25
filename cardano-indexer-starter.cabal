@@ -18,7 +18,22 @@ common warnings
 library
   import: warnings
   exposed-modules: MyLib
-  build-depends: base ^>=4.18.2.1
+  build-depends: 
+    base,
+    cardano-client,
+    cardano-ledger-byron,
+    cardano-ledger-core,
+    contra-tracer,
+    io-classes,
+    ouroboros-consensus,
+    ouroboros-consensus-cardano,
+    ouroboros-consensus-diffusion,
+    ouroboros-network-api,
+    ouroboros-network-framework,
+    ouroboros-network-protocols,
+    ouroboros-consensus-protocol,
+    ouroboros-network,
+    typed-protocols
   hs-source-dirs: src
   default-language: GHC2021
 

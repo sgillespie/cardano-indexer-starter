@@ -4,12 +4,18 @@
     nixpkgs.follows = "haskellNix/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     treefmt.url = "github:numtide/treefmt-nix";
+    iohk-nix.url = "github:input-output-hk/iohk-nix";
+
+    chap = {
+      url = "github:intersectmbo/cardano-haskell-packages?ref=repo";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix, treefmt }@attrs:
+  outputs = { self, nixpkgs, flake-utils, haskellNix, treefmt, ... }@inputs:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [
+        overlays = builtins.attrValues inputs.iohk-nix.overlays ++ [
           haskellNix.overlay
         ];
 
@@ -21,16 +27,16 @@
         project = pkgs.haskell-nix.cabalProject' {
           src = ./.;
           compiler-nix-name = "ghc966";
+          inputMap = { "https://chap.intersectmbo.org/" = inputs.chap; };
 
-          shell.tools = {
-            cabal = { };
-            haskell-language-server = { };
+          shell = {
+            tools = {
+              cabal = { };
+              haskell-language-server = { };
+            };
+
+            inputsFrom = [ formatter.devShell ];
           };
-
-          shell.buildInputs = with pkgs; [
-            nixpkgs-fmt
-          ];
-          shell.inputsFrom = [ formatter.devShell ];
         };
 
         flake = project.flake { };
