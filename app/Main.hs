@@ -1,8 +1,6 @@
 module Main where
 
-import MyLib qualified (someFunc)
+import Cardano.Indexer (Config(..), runIndexer)
 
 main :: IO ()
-main = do
-    putStrLn "Hello, Haskell!"
-    MyLib.someFunc
+main = runIndexer Config

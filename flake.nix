@@ -35,6 +35,7 @@
               haskell-language-server = { };
             };
 
+            buildInputs = [ pkgs.haskellPackages.cabal-gild ];
             inputsFrom = [ formatter.devShell ];
           };
         };

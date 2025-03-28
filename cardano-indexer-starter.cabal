@@ -17,23 +17,35 @@ common warnings
 
 library
   import: warnings
-  exposed-modules: MyLib
-  build-depends: 
+  mixins:
+    base hiding (Prelude),
+    cardano-prelude (Cardano.Prelude as Prelude),
+    cardano-prelude,
+
+  exposed-modules:
+    Cardano.Indexer
+
+  build-depends:
     base,
     cardano-client,
     cardano-ledger-byron,
     cardano-ledger-core,
+    cardano-prelude,
     contra-tracer,
     io-classes,
     ouroboros-consensus,
     ouroboros-consensus-cardano,
     ouroboros-consensus-diffusion,
+    ouroboros-consensus-protocol,
+    ouroboros-network,
     ouroboros-network-api,
     ouroboros-network-framework,
     ouroboros-network-protocols,
-    ouroboros-consensus-protocol,
-    ouroboros-network,
-    typed-protocols
+    typed-protocols,
+
+  default-extensions:
+    DerivingStrategies
+
   hs-source-dirs: src
   default-language: GHC2021
 
