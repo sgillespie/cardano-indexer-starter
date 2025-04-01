@@ -3,17 +3,21 @@ module Cardano.Indexer
     Config.App,
     Config.Config (..),
     Config.runAppT,
+    CLI.Options (..),
+    CLI.NetworkMagic (..),
+    CLI.parseOptions,
     runIndexer,
   ) where
 
-import Cardano.Indexer.Config (App, Config)
+import Cardano.Indexer.CLI (Options)
+import Cardano.Indexer.CLI qualified as CLI
+import Cardano.Indexer.Config (App)
 import Cardano.Indexer.Config qualified as Config
 
-runIndexerCli :: IO ()
-runIndexerCli = _
-
-runIndexer :: Config -> IO ()
-runIndexer = Config.runAppT indexer
+runIndexer :: Options -> IO ()
+runIndexer _ = Config.runAppT indexer config
+  where
+    config = Config.Config
 
 indexer :: App ()
 indexer = pure ()

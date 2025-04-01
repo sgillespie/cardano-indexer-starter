@@ -1,6 +1,6 @@
 module Main where
 
-import Cardano.Indexer (Config (..), runIndexer)
+import Cardano.Indexer (parseOptions, runIndexer)
 
 main :: IO ()
-main = runIndexer Config
+main = runIndexer =<< parseOptions

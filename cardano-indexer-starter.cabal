@@ -24,6 +24,7 @@ library
 
   exposed-modules:
     Cardano.Indexer
+    Cardano.Indexer.CLI
     Cardano.Indexer.Config
 
   build-depends:
@@ -34,6 +35,7 @@ library
     cardano-prelude,
     contra-tracer,
     io-classes,
+    optparse-applicative,
     ouroboros-consensus,
     ouroboros-consensus-cardano,
     ouroboros-consensus-diffusion,

@@ -3,7 +3,7 @@ column-limit: 90
 function-arrows: leading
 comma-style: trailing
 import-export-style: trailing
-indent-wheres: false
+indent-wheres: true
 record-brace-space: false
 newlines-between-decls: 1
 haddock-style: single-line

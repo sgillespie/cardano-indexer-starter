@@ -20,4 +20,3 @@ data Config = Config
 
 runAppT :: AppT m a -> Config -> m a
 runAppT = runReaderT . runApp
-
