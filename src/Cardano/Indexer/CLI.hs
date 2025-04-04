@@ -5,21 +5,16 @@ module Cardano.Indexer.CLI
     parseOptions,
   ) where
 
+import Cardano.Indexer.Config (NetworkMagic (..), SocketPath (..), TestnetMagic (..))
+
 import Options.Applicative (Parser)
 import Options.Applicative qualified as Opts
 
 data Options = Options
   { optNetworkMagic :: NetworkMagic,
-    optNodeConfig :: NodeConfigFile
+    optNodeConfig :: NodeConfigFile,
+    optSocketPath :: SocketPath
   }
-
-data NetworkMagic
-  = Mainnet
-  | Testnet TestnetMagic
-  deriving stock (Eq, Show)
-
-newtype TestnetMagic = TestnetMagic {unNetworkMagic :: Word32}
-  deriving stock (Eq, Show)
 
 newtype NodeConfigFile = NodeConfigFile {unNodeConfigFile :: FilePath}
   deriving stock (Eq, Show)
@@ -31,7 +26,11 @@ parseOptions = Opts.execParser (Opts.info parser desc)
     desc = Opts.fullDesc <> Opts.progDesc "A sample Cardano indexer"
 
 options :: Parser Options
-options = Options <$> parseNetworkMagic <*> parseNodeConfigFile
+options =
+  Options
+    <$> parseNetworkMagic
+    <*> parseNodeConfigFile
+    <*> parseSocketPath
 
 parseNetworkMagic :: Parser NetworkMagic
 parseNetworkMagic = parseMainnet <|> parseTestnetMagic
@@ -61,3 +60,12 @@ parseNodeConfigFile = NodeConfigFile <$> Opts.strOption optionMod
         <> Opts.short 'f'
         <> Opts.metavar "PATH"
         <> Opts.help "Configuration file for cardano-node."
+
+parseSocketPath :: Parser SocketPath
+parseSocketPath = SocketPath <$> Opts.strOption optionMod
+  where
+    optionMod = 
+      Opts.long "socker-path"
+        <> Opts.short 's'
+        <> Opts.metavar "PATH"
+        <> Opts.help "Path to the node socket."

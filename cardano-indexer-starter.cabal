@@ -25,11 +25,12 @@ library
   exposed-modules:
     Cardano.Indexer
     Cardano.Indexer.CLI
+    Cardano.Indexer.ChainSync
     Cardano.Indexer.Config
 
   build-depends:
     base,
-    cardano-client,
+    cardano-client >= 0.5.1.0,
     cardano-ledger-byron,
     cardano-ledger-core,
     cardano-prelude,
@@ -44,10 +45,17 @@ library
     ouroboros-network-api,
     ouroboros-network-framework,
     ouroboros-network-protocols,
+    network-mux,
     typed-protocols,
+    typed-protocols-stateful
 
   default-extensions:
+    DataKinds
     DerivingStrategies
+    RecordWildCards
+
+  other-extensions:
+    QuantifiedConstraints
 
   hs-source-dirs: src
   default-language: GHC2021

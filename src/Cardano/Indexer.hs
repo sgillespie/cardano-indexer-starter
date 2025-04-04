@@ -15,9 +15,14 @@ import Cardano.Indexer.Config (App)
 import Cardano.Indexer.Config qualified as Config
 
 runIndexer :: Options -> IO ()
-runIndexer _ = Config.runAppT indexer config
+runIndexer CLI.Options{..} = Config.runAppT indexer config
   where
     config = Config.Config
+      { cfgMagic = optNetworkMagic,
+        cfgSocketPath = optSocketPath,
+        cfgProtocolInfo = _  -- TODO[sgillespie]
+      }
+
 
 indexer :: App ()
 indexer = pure ()
