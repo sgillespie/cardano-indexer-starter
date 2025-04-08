@@ -30,9 +30,11 @@ library
 
   build-depends:
     base,
+    cardano-api,
     cardano-client >= 0.5.1.0,
     cardano-ledger-byron,
     cardano-ledger-core,
+    cardano-node,
     cardano-prelude,
     contra-tracer,
     io-classes,
@@ -46,13 +48,17 @@ library
     ouroboros-network-framework,
     ouroboros-network-protocols,
     network-mux,
+    transformers,
     typed-protocols,
     typed-protocols-stateful
 
   default-extensions:
     DataKinds
     DerivingStrategies
+    GADTs
+    OverloadedStrings
     RecordWildCards
+    TypeFamilies
 
   other-extensions:
     QuantifiedConstraints

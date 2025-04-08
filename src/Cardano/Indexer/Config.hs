@@ -5,14 +5,18 @@ module Cardano.Indexer.Config
     NetworkMagic (..),
     TestnetMagic (..),
     SocketPath (..),
+    NodeConfigFile (..),
     StandardBlock,
     StandardTip,
+    AppError(..),
     runAppT,
     networkMagicId,
   ) where
-import Ouroboros.Consensus.Node (ProtocolInfo)
-import Ouroboros.Consensus.Cardano (CardanoBlock)
+
 import Cardano.Ledger.Crypto (StandardCrypto)
+import Text.Show (Show(..))
+import Ouroboros.Consensus.Cardano (CardanoBlock)
+import Ouroboros.Consensus.Node (ProtocolInfo)
 import Ouroboros.Network.Block (Tip)
 
 newtype AppT m a = AppT {runApp :: ReaderT Config m a}
@@ -40,15 +44,28 @@ data NetworkMagic
 newtype TestnetMagic = TestnetMagic {unNetworkMagic :: Word32}
   deriving stock (Eq, Show)
 
-newtype SocketPath = SocketPath { unSocketPath :: FilePath }
+newtype SocketPath = SocketPath {unSocketPath :: FilePath}
+  deriving stock (Eq, Show)
+
+newtype NodeConfigFile = NodeConfigFile {unNodeConfigFile :: FilePath}
   deriving stock (Eq, Show)
 
 type StandardBlock = CardanoBlock StandardCrypto
 
 type StandardTip = Tip StandardBlock
 
-runAppT :: AppT m a -> Config -> m a
+data AppError
+  = NodeConfigError Text
+  | ImpossibleError
+  deriving stock (Typeable)
 
+instance Exception AppError
+
+instance Show AppError where
+  show (NodeConfigError err) = "Node configuration error: " <> toString err
+  show ImpossibleError = "The impossible occurred!"
+
+runAppT :: AppT m a -> Config -> m a
 runAppT = runReaderT . runApp
 
 networkMagicId :: NetworkMagic -> Word32

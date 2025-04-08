@@ -5,7 +5,7 @@ module Cardano.Indexer.CLI
     parseOptions,
   ) where
 
-import Cardano.Indexer.Config (NetworkMagic (..), SocketPath (..), TestnetMagic (..))
+import Cardano.Indexer.Config (NetworkMagic (..), SocketPath (..), TestnetMagic (..), NodeConfigFile(..))
 
 import Options.Applicative (Parser)
 import Options.Applicative qualified as Opts
@@ -15,9 +15,6 @@ data Options = Options
     optNodeConfig :: NodeConfigFile,
     optSocketPath :: SocketPath
   }
-
-newtype NodeConfigFile = NodeConfigFile {unNodeConfigFile :: FilePath}
-  deriving stock (Eq, Show)
 
 parseOptions :: IO Options
 parseOptions = Opts.execParser (Opts.info parser desc)
