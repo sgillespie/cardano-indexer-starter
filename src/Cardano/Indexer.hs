@@ -68,7 +68,7 @@ mkConsensusProtocol' cfg =
       (Just $ ncProtocolFiles cfg)
 
 mkCardanoBlockType
-  :: SomeConsensusProtocol 
+  :: SomeConsensusProtocol
   -> Either AppError (ProtocolInfo StandardBlock)
 mkCardanoBlockType (SomeConsensusProtocol CardanoBlockType runP) =
   Right $ fst (protocolInfo @IO runP)

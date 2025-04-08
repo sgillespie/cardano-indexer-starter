@@ -5,7 +5,12 @@ module Cardano.Indexer.CLI
     parseOptions,
   ) where
 
-import Cardano.Indexer.Config (NetworkMagic (..), SocketPath (..), TestnetMagic (..), NodeConfigFile(..))
+import Cardano.Indexer.Config
+  ( NetworkMagic (..),
+    NodeConfigFile (..),
+    SocketPath (..),
+    TestnetMagic (..),
+  )
 
 import Options.Applicative (Parser)
 import Options.Applicative qualified as Opts
@@ -61,7 +66,7 @@ parseNodeConfigFile = NodeConfigFile <$> Opts.strOption optionMod
 parseSocketPath :: Parser SocketPath
 parseSocketPath = SocketPath <$> Opts.strOption optionMod
   where
-    optionMod = 
+    optionMod =
       Opts.long "socker-path"
         <> Opts.short 's'
         <> Opts.metavar "PATH"

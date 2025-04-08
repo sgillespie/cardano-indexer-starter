@@ -8,16 +8,16 @@ module Cardano.Indexer.Config
     NodeConfigFile (..),
     StandardBlock,
     StandardTip,
-    AppError(..),
+    AppError (..),
     runAppT,
     networkMagicId,
   ) where
 
 import Cardano.Ledger.Crypto (StandardCrypto)
-import Text.Show (Show(..))
 import Ouroboros.Consensus.Cardano (CardanoBlock)
 import Ouroboros.Consensus.Node (ProtocolInfo)
 import Ouroboros.Network.Block (Tip)
+import Text.Show (Show (..))
 
 newtype AppT m a = AppT {runApp :: ReaderT Config m a}
   deriving newtype

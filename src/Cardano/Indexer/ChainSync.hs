@@ -4,8 +4,8 @@ module Cardano.Indexer.ChainSync
   ( runNodeClient,
   ) where
 
-import Cardano.Indexer.Config qualified as Cfg
 import Cardano.Indexer.Config (App, StandardBlock)
+import Cardano.Indexer.Config qualified as Cfg
 
 import Cardano.Client.Subscription
   ( Decision,
@@ -31,8 +31,8 @@ import Ouroboros.Consensus.Protocol.Praos ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Consensus.Util (ShowProxy)
 import Ouroboros.Network.Magic (NetworkMagic (..))
-import Ouroboros.Network.Mux qualified as Mux
 import Ouroboros.Network.Mux (RunMiniProtocolWithMinimalCtx)
+import Ouroboros.Network.Mux qualified as Mux
 import Ouroboros.Network.NodeToClient (LocalAddress, NodeToClientVersion)
 import Ouroboros.Network.NodeToClient qualified as NodeToClient
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (State (..))
