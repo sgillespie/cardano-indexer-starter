@@ -12,30 +12,42 @@ category: Data
 build-type: Simple
 extra-doc-files: CHANGELOG.md
 
-common warnings
-  ghc-options: -Wall
-
-library
-  import: warnings
+common all
+  ghc-options: 
+    -Wall
+    -Werror
   mixins:
     base hiding (Prelude),
     cardano-prelude (Cardano.Prelude as Prelude),
     cardano-prelude,
+  build-depends:
+    base ^>=4.18.2.1,
+    cardano-prelude,
+    transformers
+  default-extensions:
+    DataKinds
+    DerivingStrategies
+    GADTs
+    OverloadedStrings
+    RecordWildCards
+    TypeFamilies
+  other-extensions:
+    QuantifiedConstraints
+  default-language: GHC2021
 
+library
+  import: all
   exposed-modules:
     Cardano.Indexer
     Cardano.Indexer.CLI
     Cardano.Indexer.ChainSync
     Cardano.Indexer.Config
-
   build-depends:
-    base,
     cardano-api,
     cardano-client >= 0.5.1.0,
     cardano-ledger-byron,
     cardano-ledger-core,
     cardano-node,
-    cardano-prelude,
     contra-tracer,
     io-classes,
     optparse-applicative,
@@ -48,40 +60,22 @@ library
     ouroboros-network-framework,
     ouroboros-network-protocols,
     network-mux,
-    transformers,
     typed-protocols,
     typed-protocols-stateful
-
-  default-extensions:
-    DataKinds
-    DerivingStrategies
-    GADTs
-    OverloadedStrings
-    RecordWildCards
-    TypeFamilies
-
-  other-extensions:
-    QuantifiedConstraints
-
   hs-source-dirs: src
-  default-language: GHC2021
 
 executable cardano-indexer-starter
-  import: warnings
+  import: all
   main-is: Main.hs
   build-depends:
-    base ^>=4.18.2.1,
     cardano-indexer-starter,
-
   hs-source-dirs: app
-  default-language: GHC2021
 
 test-suite cardano-indexer-starter-test
-  import: warnings
+  import: all
   default-language: GHC2021
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Main.hs
   build-depends:
-    base ^>=4.18.2.1,
     cardano-indexer-starter,
