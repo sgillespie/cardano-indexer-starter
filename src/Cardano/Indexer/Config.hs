@@ -13,6 +13,7 @@ module Cardano.Indexer.Config
     networkMagicId,
   ) where
 
+import Cardano.BM.Trace (Trace)
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Ouroboros.Consensus.Cardano (CardanoBlock)
 import Ouroboros.Consensus.Node (ProtocolInfo)
@@ -33,7 +34,8 @@ type App = AppT IO
 data Config = Config
   { cfgMagic :: NetworkMagic,
     cfgSocketPath :: SocketPath,
-    cfgProtocolInfo :: ProtocolInfo StandardBlock
+    cfgProtocolInfo :: ProtocolInfo StandardBlock,
+    cfgTrace :: Trace IO Text
   }
 
 data NetworkMagic

@@ -1,4 +1,5 @@
 {-# LANGUAGE QuantifiedConstraints #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Cardano.Indexer.ChainSync
   ( runNodeClient,
@@ -7,13 +8,25 @@ module Cardano.Indexer.ChainSync
 import Cardano.Indexer.Config (App, StandardBlock)
 import Cardano.Indexer.Config qualified as Cfg
 
+import Cardano.BM.Data.LogItem (LoggerName)
+import Cardano.BM.Trace (Trace, appendName)
+import Cardano.BM.Tracing
+  ( HasPrivacyAnnotation,
+    HasSeverityAnnotation,
+    ToObject,
+    Tracer,
+    Transformable,
+  )
+import Cardano.BM.Tracing qualified as Logging
 import Cardano.Client.Subscription
   ( Decision,
     NodeToClientProtocols,
     SubscriptionParams,
+    SubscriptionTrace,
     SubscriptionTracers,
   )
 import Cardano.Client.Subscription qualified as Subscription
+import Cardano.Tracing.OrphanInstances.Network ()
 import Control.Tracer (nullTracer)
 import Network.Mux (Mode (..))
 import Network.TypedProtocol (IsPipelined (..), PeerRole (..), Protocol (..))
@@ -30,11 +43,14 @@ import Ouroboros.Consensus.Node.NetworkProtocolVersion qualified as ProtoVersion
 import Ouroboros.Consensus.Protocol.Praos ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Consensus.Util (ShowProxy)
+import Ouroboros.Network.Block (Point, Tip)
+import Ouroboros.Network.Driver.Stateful qualified as Stateful
 import Ouroboros.Network.Magic (NetworkMagic (..))
 import Ouroboros.Network.Mux (RunMiniProtocolWithMinimalCtx)
 import Ouroboros.Network.Mux qualified as Mux
-import Ouroboros.Network.NodeToClient (LocalAddress, NodeToClientVersion)
+import Ouroboros.Network.NodeToClient (LocalAddress, NodeToClientVersion, TraceSendRecv)
 import Ouroboros.Network.NodeToClient qualified as NodeToClient
+import Ouroboros.Network.Protocol.ChainSync.Type (ChainSync)
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (State (..))
 
 type InitiatorProtocols =
@@ -53,11 +69,18 @@ type InitiatorRunMiniProtocol a b =
     a
     b
 
+instance HasPrivacyAnnotation (SubscriptionTrace ())
+instance HasSeverityAnnotation (SubscriptionTrace ())
+instance Transformable Text IO (SubscriptionTrace ())
+
+instance Transformable Text IO (TraceSendRecv (ChainSync blk (Point blk) (Tip blk)))
+
 runNodeClient :: App ()
 runNodeClient = do
   magicId <- asks (Cfg.networkMagicId . Cfg.cfgMagic)
   socketPath <- asks Cfg.cfgSocketPath
   protoInfo <- asks Cfg.cfgProtocolInfo
+  tracer <- asks Cfg.cfgTrace
 
   liftIO $
     NodeToClient.withIOManager $ \ioManager ->
@@ -65,22 +88,29 @@ runNodeClient = do
         (NodeToClient.localSnocket ioManager)
         (NetworkMagic magicId)
         nodeToClientVersions
-        tracers
+        (subscriptionTracers tracer)
         (params socketPath)
-        (protocols protoInfo)
+        (protocols tracer protoInfo)
 
 nodeToClientVersions :: Map NodeToClientVersion (BlockNodeToClientVersion StandardBlock)
 nodeToClientVersions = ProtoVersion.supportedNodeToClientVersions (Proxy @StandardBlock)
 
-tracers :: SubscriptionTracers a
-tracers =
+subscriptionTracers :: Trace IO Text -> SubscriptionTracers ()
+subscriptionTracers tracer =
   Subscription.SubscriptionTracers
-    { stMuxTracer = nullTracer,
-      stHandshakeTracer = nullTracer,
-      stSubscriptionTracer = nullTracer
+    { stMuxTracer = mkTracer tracer "Mux",
+      stHandshakeTracer = mkTracer tracer "Handshake",
+      stSubscriptionTracer = mkTracer tracer "Subscription"
     }
+  where
+    mkTracer
+      :: (ToObject a, Transformable a IO b)
+      => Trace IO a
+      -> LoggerName
+      -> Tracer IO b
+    mkTracer tracer' name = Logging.toLogObject (appendName name tracer')
 
-params :: Cfg.SocketPath -> SubscriptionParams a
+params :: Cfg.SocketPath -> SubscriptionParams ()
 params (Cfg.SocketPath path) =
   Subscription.SubscriptionParams
     { spAddress = NodeToClient.LocalAddress path,
@@ -93,13 +123,14 @@ params (Cfg.SocketPath path) =
     whenComplete _ = Subscription.Abort
 
 protocols
-  :: ProtocolInfo Cfg.StandardBlock
+  :: Trace IO Text
+  -> ProtocolInfo Cfg.StandardBlock
   -> NodeToClientVersion
   -> BlockNodeToClientVersion Cfg.StandardBlock
   -> InitiatorProtocols () Void
-protocols protoInfo clientVersion blockVersion =
+protocols tracer protoInfo clientVersion blockVersion =
   NodeToClient.NodeToClientProtocols
-    { localChainSyncProtocol = localChainSyncProtocol codecs,
+    { localChainSyncProtocol = localChainSyncProtocol tracer codecs,
       localTxSubmissionProtocol = localTxSubmissionProtocol codecs,
       localStateQueryProtocol = localStateQueryProtocol codecs,
       localTxMonitorProtocol = localTxMonitorProtocol codecs
@@ -108,17 +139,19 @@ protocols protoInfo clientVersion blockVersion =
     codecs = codecConfig protoInfo blockVersion clientVersion
 
 localChainSyncProtocol
-  :: ClientCodecs Cfg.StandardBlock IO
+  :: Trace IO Text
+  -> ClientCodecs Cfg.StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
-localChainSyncProtocol codecs = mkInitiatorProtocolOnly codec peer
+localChainSyncProtocol tracer codecs = mkInitiatorProtocolOnly tracer' codec peer
   where
+    tracer' = Logging.toLogObject (appendName "ChainSync" tracer)
     codec = cChainSyncCodec codecs
     peer = NodeToClient.chainSyncPeerNull
 
 localTxSubmissionProtocol
   :: ClientCodecs Cfg.StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
-localTxSubmissionProtocol codecs = mkInitiatorProtocolOnly codec peer
+localTxSubmissionProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
   where
     codec = cTxSubmissionCodec codecs
     peer = NodeToClient.localTxSubmissionPeerNull
@@ -126,7 +159,7 @@ localTxSubmissionProtocol codecs = mkInitiatorProtocolOnly codec peer
 localStateQueryProtocol
   :: ClientCodecs Cfg.StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
-localStateQueryProtocol codecs = mkInitiatorProtocolOnlySt st codec peer
+localStateQueryProtocol codecs = mkInitiatorProtocolOnlySt st nullTracer codec peer
   where
     codec = cStateQueryCodec codecs
     peer = NodeToClient.localStateQueryPeerNull
@@ -135,7 +168,7 @@ localStateQueryProtocol codecs = mkInitiatorProtocolOnlySt st codec peer
 localTxMonitorProtocol
   :: ClientCodecs Cfg.StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
-localTxMonitorProtocol codecs = mkInitiatorProtocolOnly codec peer
+localTxMonitorProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
   where
     codec = cTxMonitorCodec codecs
     peer = NodeToClient.localTxMonitorPeerNull
@@ -152,15 +185,14 @@ mkInitiatorProtocolOnly
        Show failure,
        forall (st :: ps) stok. (stok ~ StateToken st) => Show stok
      )
-  => Codec ps failure IO LByteString
+  => Tracer IO (TraceSendRecv ps)
+  -> Codec ps failure IO LByteString
   -> Peer ps 'AsClient 'NonPipelined pr IO a
   -> InitiatorRunMiniProtocol a Void
-mkInitiatorProtocolOnly codec peer =
+mkInitiatorProtocolOnly tracer codec peer =
   Subscription.InitiatorProtocolOnly $
     Mux.mkMiniProtocolCbFromPeer $
       const (tracer, codec, peer)
-  where
-    tracer = nullTracer
 
 mkInitiatorProtocolOnlySt
   :: ( ShowProxy ps,
@@ -168,12 +200,11 @@ mkInitiatorProtocolOnlySt
        forall (st' :: ps) stok. (stok ~ StateToken st') => Show stok
      )
   => f st
+  -> Tracer IO (Stateful.TraceSendRecv ps f)
   -> Stateful.Codec ps failure f IO LByteString
   -> Stateful.Peer ps pr st f IO a
   -> InitiatorRunMiniProtocol a Void
-mkInitiatorProtocolOnlySt st codec peer =
+mkInitiatorProtocolOnlySt st tracer codec peer =
   Subscription.InitiatorProtocolOnly $
     Mux.mkMiniProtocolCbFromPeerSt $
       const (tracer, codec, st, peer)
-  where
-    tracer = nullTracer

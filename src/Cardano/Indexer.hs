@@ -9,11 +9,13 @@ module Cardano.Indexer
     runIndexer,
   ) where
 
-import Cardano.Api (BlockType (..), Protocol (..))
 import Cardano.Indexer.CLI (Options)
 import Cardano.Indexer.CLI qualified as CLI
 import Cardano.Indexer.Config (App, AppError (..), NodeConfigFile (..), StandardBlock)
 import Cardano.Indexer.Config qualified as Config
+
+import Cardano.Api (BlockType (..), Protocol (..))
+import Cardano.BM.Trace (stdoutTrace)
 import Cardano.Node.Configuration.POM
   ( NodeConfiguration (..),
     makeNodeConfiguration,
@@ -34,7 +36,8 @@ runIndexer CLI.Options{..} = do
       Config.Config
         { cfgMagic = optNetworkMagic,
           cfgSocketPath = optSocketPath,
-          cfgProtocolInfo = protoInfo
+          cfgProtocolInfo = protoInfo,
+          cfgTrace = stdoutTrace
         }
 
   Config.runAppT indexer config

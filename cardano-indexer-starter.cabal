@@ -56,6 +56,7 @@ library
     cardano-node,
     contra-tracer,
     io-classes,
+    iohk-monitoring,
     network-mux,
     optparse-applicative,
     ouroboros-consensus,
