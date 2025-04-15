@@ -6,10 +6,12 @@ module Cardano.Indexer.CLI
   ) where
 
 import Cardano.Indexer.Config
-  ( NetworkMagic (..),
+  ( DatabaseDir (..),
+    NetworkMagic (..),
     NodeConfigFile (..),
     SocketPath (..),
     TestnetMagic (..),
+    TopologyConfigFile (..),
   )
 
 import Options.Applicative (Parser)
@@ -18,7 +20,9 @@ import Options.Applicative qualified as Opts
 data Options = Options
   { optNetworkMagic :: NetworkMagic,
     optNodeConfig :: NodeConfigFile,
-    optSocketPath :: SocketPath
+    optTopologyConfig :: TopologyConfigFile,
+    optSocketPath :: SocketPath,
+    optDatabaseDir :: DatabaseDir
   }
 
 parseOptions :: IO Options
@@ -32,7 +36,9 @@ options =
   Options
     <$> parseNetworkMagic
     <*> parseNodeConfigFile
+    <*> parseTopologyConfigFile
     <*> parseSocketPath
+    <*> parseDatabaseDir
 
 parseNetworkMagic :: Parser NetworkMagic
 parseNetworkMagic = parseMainnet <|> parseTestnetMagic
@@ -63,11 +69,29 @@ parseNodeConfigFile = NodeConfigFile <$> Opts.strOption optionMod
         <> Opts.metavar "PATH"
         <> Opts.help "Configuration file for cardano-node."
 
+parseTopologyConfigFile :: Parser TopologyConfigFile
+parseTopologyConfigFile = TopologyConfigFile <$> Opts.strOption optionMod
+  where
+    optionMod =
+      Opts.long "topology"
+        <> Opts.short 'y'
+        <> Opts.metavar "PATH"
+        <> Opts.help "Topology file for cardano-node."
+
 parseSocketPath :: Parser SocketPath
 parseSocketPath = SocketPath <$> Opts.strOption optionMod
   where
     optionMod =
-      Opts.long "socker-path"
+      Opts.long "socket-path"
         <> Opts.short 's'
         <> Opts.metavar "PATH"
-        <> Opts.help "Path to the node socket."
+        <> Opts.help "Path to the cardano-node socket."
+
+parseDatabaseDir :: Parser DatabaseDir
+parseDatabaseDir = DatabaseDir <$> Opts.strOption optionMod
+  where
+    optionMod =
+      Opts.long "database-path"
+        <> Opts.short 'd'
+        <> Opts.metavar "PATH"
+        <> Opts.help "Path to the cardano-node database directory."

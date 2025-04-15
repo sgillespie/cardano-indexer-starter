@@ -5,11 +5,12 @@ module Cardano.Indexer.ChainSync
   ( runNodeClient,
   ) where
 
-import Cardano.Indexer.Config (App, StandardBlock)
+import Cardano.Indexer.Config (App, StandardBlock, StandardPoint, StandardTip)
 import Cardano.Indexer.Config qualified as Cfg
 
 import Cardano.BM.Data.LogItem (LoggerName)
-import Cardano.BM.Trace (Trace, appendName)
+import Cardano.BM.Data.LogItem qualified as Logging
+import Cardano.BM.Trace (Trace, appendName, logError)
 import Cardano.BM.Tracing
   ( HasPrivacyAnnotation,
     HasSeverityAnnotation,
@@ -43,13 +44,20 @@ import Ouroboros.Consensus.Node.NetworkProtocolVersion qualified as ProtoVersion
 import Ouroboros.Consensus.Protocol.Praos ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Consensus.Util (ShowProxy)
-import Ouroboros.Network.Block (Point, Tip)
+import Ouroboros.Network.Block (Point, Tip, genesisPoint, getTipBlockNo)
 import Ouroboros.Network.Driver.Stateful qualified as Stateful
 import Ouroboros.Network.Magic (NetworkMagic (..))
 import Ouroboros.Network.Mux (RunMiniProtocolWithMinimalCtx)
 import Ouroboros.Network.Mux qualified as Mux
 import Ouroboros.Network.NodeToClient (LocalAddress, NodeToClientVersion, TraceSendRecv)
 import Ouroboros.Network.NodeToClient qualified as NodeToClient
+import Ouroboros.Network.Protocol.ChainSync.Client
+  ( ChainSyncClient,
+    ClientStIdle,
+    ClientStIntersect,
+    ClientStNext,
+  )
+import Ouroboros.Network.Protocol.ChainSync.Client qualified as ChainSync
 import Ouroboros.Network.Protocol.ChainSync.Type (ChainSync)
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (State (..))
 
@@ -71,7 +79,25 @@ type InitiatorRunMiniProtocol a b =
 
 instance HasPrivacyAnnotation (SubscriptionTrace ())
 instance HasSeverityAnnotation (SubscriptionTrace ())
-instance Transformable Text IO (SubscriptionTrace ())
+
+instance Transformable Text IO (SubscriptionTrace ()) where
+  trTransformer _ (Logging.Tracer tracer) = Logging.Tracer $ \tracers -> do
+    meta <-
+      Logging.mkLOMeta
+        (Logging.getSeverityAnnotation tracers)
+        (Logging.getPrivacyAnnotation tracers)
+
+    let
+      msg = Logging.LogMessage (logMessage tracers)
+      loggerName = mempty
+      obj = Logging.LogObject loggerName meta msg
+
+    Logging.traceWith (Logging.Tracer tracer) (loggerName, obj)
+    where
+      logMessage (Subscription.SubscriptionError err) = show err
+      logMessage (Subscription.SubscriptionResult a) = "result " <> show a
+      logMessage Subscription.SubscriptionReconnect = "reconnecting"
+      logMessage Subscription.SubscriptionTerminate = "terminating"
 
 instance Transformable Text IO (TraceSendRecv (ChainSync blk (Point blk) (Tip blk)))
 
@@ -81,6 +107,9 @@ runNodeClient = do
   socketPath <- asks Cfg.cfgSocketPath
   protoInfo <- asks Cfg.cfgProtocolInfo
   tracer <- asks Cfg.cfgTrace
+
+  liftIO $
+    logError (appendName "ChainSync" tracer) "Starting chainsync client"
 
   liftIO $
     NodeToClient.withIOManager $ \ioManager ->
@@ -98,8 +127,8 @@ nodeToClientVersions = ProtoVersion.supportedNodeToClientVersions (Proxy @Standa
 subscriptionTracers :: Trace IO Text -> SubscriptionTracers ()
 subscriptionTracers tracer =
   Subscription.SubscriptionTracers
-    { stMuxTracer = mkTracer tracer "Mux",
-      stHandshakeTracer = mkTracer tracer "Handshake",
+    { stMuxTracer = nullTracer,
+      stHandshakeTracer = nullTracer,
       stSubscriptionTracer = mkTracer tracer "Subscription"
     }
   where
@@ -124,9 +153,9 @@ params (Cfg.SocketPath path) =
 
 protocols
   :: Trace IO Text
-  -> ProtocolInfo Cfg.StandardBlock
+  -> ProtocolInfo StandardBlock
   -> NodeToClientVersion
-  -> BlockNodeToClientVersion Cfg.StandardBlock
+  -> BlockNodeToClientVersion StandardBlock
   -> InitiatorProtocols () Void
 protocols tracer protoInfo clientVersion blockVersion =
   NodeToClient.NodeToClientProtocols
@@ -140,16 +169,17 @@ protocols tracer protoInfo clientVersion blockVersion =
 
 localChainSyncProtocol
   :: Trace IO Text
-  -> ClientCodecs Cfg.StandardBlock IO
+  -> ClientCodecs StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
 localChainSyncProtocol tracer codecs = mkInitiatorProtocolOnly tracer' codec peer
   where
-    tracer' = Logging.toLogObject (appendName "ChainSync" tracer)
+    trace' = appendName "ChainSync" tracer
+    tracer' = Logging.toLogObject trace'
     codec = cChainSyncCodec codecs
-    peer = NodeToClient.chainSyncPeerNull
+    peer = ChainSync.chainSyncClientPeer $ ChainSync.ChainSyncClient (mkChainSyncClient trace')
 
 localTxSubmissionProtocol
-  :: ClientCodecs Cfg.StandardBlock IO
+  :: ClientCodecs StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
 localTxSubmissionProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
   where
@@ -157,7 +187,7 @@ localTxSubmissionProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
     peer = NodeToClient.localTxSubmissionPeerNull
 
 localStateQueryProtocol
-  :: ClientCodecs Cfg.StandardBlock IO
+  :: ClientCodecs StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
 localStateQueryProtocol codecs = mkInitiatorProtocolOnlySt st nullTracer codec peer
   where
@@ -166,18 +196,85 @@ localStateQueryProtocol codecs = mkInitiatorProtocolOnlySt st nullTracer codec p
     st = StateIdle
 
 localTxMonitorProtocol
-  :: ClientCodecs Cfg.StandardBlock IO
+  :: ClientCodecs StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
 localTxMonitorProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
   where
     codec = cTxMonitorCodec codecs
     peer = NodeToClient.localTxMonitorPeerNull
 
+mkChainSyncClient
+  :: Trace IO Text
+  -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
+mkChainSyncClient tracer =
+  pure $ ChainSync.SendMsgFindIntersect [genesisPoint] (mkFindIntersectClient tracer)
+
+mkFindIntersectClient
+  :: Trace IO Text
+  -> ClientStIntersect StandardBlock StandardPoint StandardTip IO a
+mkFindIntersectClient tracer =
+  ChainSync.ClientStIntersect
+    { recvMsgIntersectFound = intersectFound,
+      recvMsgIntersectNotFound = intersectNotFound
+    }
+  where
+    intersectFound point tip = ChainSync.ChainSyncClient (mkRequestNextClient tracer (Just point) tip)
+    intersectNotFound tip = ChainSync.ChainSyncClient (mkRequestNextClient tracer Nothing tip)
+
+mkRequestNextClient
+  :: Trace IO Text
+  -> Maybe StandardPoint
+  -> StandardTip
+  -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
+mkRequestNextClient tracer _ tip = do
+  let
+    _tip' = getTipBlockNo tip
+  pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer)
+
+mkClientStNext
+  :: Trace IO Text
+  -> ClientStNext StandardBlock StandardPoint StandardTip IO a
+mkClientStNext tracer =
+  ChainSync.ClientStNext
+    { recvMsgRollForward = rollForward tracer,
+      recvMsgRollBackward = rollBackward tracer
+    }
+
+rollForward
+  :: Trace IO Text
+  -> StandardBlock
+  -> StandardTip
+  -> ChainSyncClient StandardBlock StandardPoint StandardTip IO a
+rollForward tracer header tip =
+  ChainSync.ChainSyncClient $ mkRequestNextClient' tracer (Left header) tip
+
+rollBackward
+  :: Trace IO Text
+  -> Point StandardBlock
+  -> Tip StandardBlock
+  -> ChainSyncClient StandardBlock StandardPoint StandardTip IO a
+rollBackward tracer point tip =
+  ChainSync.ChainSyncClient $ mkRequestNextClient' tracer (Right point) tip
+
+mkRequestNextClient'
+  :: Trace IO Text
+  -> Either StandardBlock (Point StandardBlock)
+  -> Tip StandardBlock
+  -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
+mkRequestNextClient' tracer clientTip _ =
+  case clientTip of
+    Left _ -> do
+      -- TODO[sgillespie]: Process block
+      pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer)
+    Right _ -> do
+      -- TODO[sgillespie]: Process rollback
+      pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer)
+
 codecConfig
-  :: ProtocolInfo Cfg.StandardBlock
-  -> BlockNodeToClientVersion Cfg.StandardBlock
+  :: ProtocolInfo StandardBlock
+  -> BlockNodeToClientVersion StandardBlock
   -> NodeToClientVersion
-  -> ClientCodecs Cfg.StandardBlock IO
+  -> ClientCodecs StandardBlock IO
 codecConfig = clientCodecs . configCodec . pInfoConfig
 
 mkInitiatorProtocolOnly

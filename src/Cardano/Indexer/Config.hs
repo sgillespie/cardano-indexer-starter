@@ -6,8 +6,11 @@ module Cardano.Indexer.Config
     TestnetMagic (..),
     SocketPath (..),
     NodeConfigFile (..),
+    TopologyConfigFile (..),
+    DatabaseDir (..),
     StandardBlock,
     StandardTip,
+    StandardPoint,
     AppError (..),
     runAppT,
     networkMagicId,
@@ -15,6 +18,7 @@ module Cardano.Indexer.Config
 
 import Cardano.BM.Trace (Trace)
 import Cardano.Ledger.Crypto (StandardCrypto)
+import Ouroboros.Consensus.Block (Point)
 import Ouroboros.Consensus.Cardano (CardanoBlock)
 import Ouroboros.Consensus.Node (ProtocolInfo)
 import Ouroboros.Network.Block (Tip)
@@ -52,9 +56,17 @@ newtype SocketPath = SocketPath {unSocketPath :: FilePath}
 newtype NodeConfigFile = NodeConfigFile {unNodeConfigFile :: FilePath}
   deriving stock (Eq, Show)
 
+newtype TopologyConfigFile = TopologyConfigFile {unTopologyConfigFile :: FilePath}
+  deriving stock (Eq, Show)
+
+newtype DatabaseDir = DatabaseDir {unDatabaseDir :: FilePath}
+  deriving stock (Eq, Show)
+
 type StandardBlock = CardanoBlock StandardCrypto
 
 type StandardTip = Tip StandardBlock
+
+type StandardPoint = Point StandardBlock
 
 data AppError
   = NodeConfigError Text
