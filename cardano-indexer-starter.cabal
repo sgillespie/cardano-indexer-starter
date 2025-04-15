@@ -67,8 +67,10 @@ library
     ouroboros-network-api,
     ouroboros-network-framework,
     ouroboros-network-protocols,
+    stm,
     typed-protocols,
     typed-protocols-stateful,
+    unliftio,
 
   hs-source-dirs: src
 

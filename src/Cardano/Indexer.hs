@@ -13,11 +13,11 @@ import Cardano.Indexer.CLI (Options)
 import Cardano.Indexer.CLI qualified as CLI
 import Cardano.Indexer.Config
   ( App,
-    AppError (..),
+    AppError,
     DatabaseDir,
-    NodeConfigFile (..),
+    NodeConfigFile,
     StandardBlock,
-    TopologyConfigFile (..),
+    TopologyConfigFile,
   )
 import Cardano.Indexer.Config qualified as Config
 
@@ -34,26 +34,33 @@ import Cardano.Node.Configuration.POM
 import Cardano.Node.Protocol (SomeConsensusProtocol, mkConsensusProtocol)
 import Cardano.Node.Protocol.Types (SomeConsensusProtocol (..))
 import Cardano.Node.Types (ConfigYamlFilePath (..), TopologyFile (..))
+import Control.Concurrent.STM (newTBQueueIO)
 import Control.Monad.Trans.Except (except)
 import Ouroboros.Consensus.Node (NodeDatabasePaths (..), ProtocolInfo)
+import UnliftIO.Async (mapConcurrently_)
 
 runIndexer :: Options -> IO ()
 runIndexer CLI.Options{..} = do
   protoInfo <- loadProtocolInfo optNodeConfig optTopologyConfig optDatabaseDir
-
+  queue <- newTBQueueIO 50 -- arbitrary
   let
     config =
       Config.Config
         { cfgMagic = optNetworkMagic,
           cfgSocketPath = optSocketPath,
           cfgProtocolInfo = protoInfo,
-          cfgTrace = stdoutTrace
+          cfgTrace = stdoutTrace,
+          cfgEvents = Config.EventQueue queue
         }
 
   Config.runAppT indexer config
 
 indexer :: App ()
-indexer = runNodeClient
+indexer =
+  mapConcurrently_
+    identity
+    [ runNodeClient
+    ]
 
 loadProtocolInfo
   :: NodeConfigFile
@@ -93,11 +100,11 @@ loadNodeConfig cfgFile topoFile dbDir = ExceptT $ do
            )
     cfg = makeNodeConfiguration partialCfg'
 
-  pure $ first (NodeConfigError . toText) cfg
+  pure $ first (Config.NodeConfigError . toText) cfg
 
 mkConsensusProtocol' :: NodeConfiguration -> ExceptT AppError IO SomeConsensusProtocol
 mkConsensusProtocol' cfg =
-  withExceptT (NodeConfigError . textShow) $
+  withExceptT (Config.NodeConfigError . textShow) $
     mkConsensusProtocol
       (ncProtocolConfig cfg)
       (Just $ ncProtocolFiles cfg)
@@ -108,4 +115,4 @@ mkCardanoBlockType
 mkCardanoBlockType (SomeConsensusProtocol CardanoBlockType runP) =
   Right $ fst (protocolInfo @IO runP)
 mkCardanoBlockType (SomeConsensusProtocol blockTy _) =
-  Left $ NodeConfigError $ "Unexpected block type: " <> textShow blockTy
+  Left $ Config.NodeConfigError $ "Unexpected block type: " <> textShow blockTy

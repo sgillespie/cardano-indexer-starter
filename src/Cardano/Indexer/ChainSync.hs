@@ -5,7 +5,7 @@ module Cardano.Indexer.ChainSync
   ( runNodeClient,
   ) where
 
-import Cardano.Indexer.Config (App, StandardBlock, StandardPoint, StandardTip)
+import Cardano.Indexer.Config (App, EventQueue, StandardBlock, StandardPoint, StandardTip)
 import Cardano.Indexer.Config qualified as Cfg
 
 import Cardano.BM.Data.LogItem (LoggerName)
@@ -28,6 +28,7 @@ import Cardano.Client.Subscription
   )
 import Cardano.Client.Subscription qualified as Subscription
 import Cardano.Tracing.OrphanInstances.Network ()
+import Control.Concurrent.STM (writeTBQueue)
 import Control.Tracer (nullTracer)
 import Network.Mux (Mode (..))
 import Network.TypedProtocol (IsPipelined (..), PeerRole (..), Protocol (..))
@@ -107,6 +108,7 @@ runNodeClient = do
   socketPath <- asks Cfg.cfgSocketPath
   protoInfo <- asks Cfg.cfgProtocolInfo
   tracer <- asks Cfg.cfgTrace
+  queue <- asks Cfg.cfgEvents
 
   liftIO $
     logError (appendName "ChainSync" tracer) "Starting chainsync client"
@@ -119,7 +121,7 @@ runNodeClient = do
         nodeToClientVersions
         (subscriptionTracers tracer)
         (params socketPath)
-        (protocols tracer protoInfo)
+        (protocols tracer protoInfo queue)
 
 nodeToClientVersions :: Map NodeToClientVersion (BlockNodeToClientVersion StandardBlock)
 nodeToClientVersions = ProtoVersion.supportedNodeToClientVersions (Proxy @StandardBlock)
@@ -154,12 +156,13 @@ params (Cfg.SocketPath path) =
 protocols
   :: Trace IO Text
   -> ProtocolInfo StandardBlock
+  -> EventQueue
   -> NodeToClientVersion
   -> BlockNodeToClientVersion StandardBlock
   -> InitiatorProtocols () Void
-protocols tracer protoInfo clientVersion blockVersion =
+protocols tracer protoInfo queue clientVersion blockVersion =
   NodeToClient.NodeToClientProtocols
-    { localChainSyncProtocol = localChainSyncProtocol tracer codecs,
+    { localChainSyncProtocol = localChainSyncProtocol tracer queue codecs,
       localTxSubmissionProtocol = localTxSubmissionProtocol codecs,
       localStateQueryProtocol = localStateQueryProtocol codecs,
       localTxMonitorProtocol = localTxMonitorProtocol codecs
@@ -169,14 +172,17 @@ protocols tracer protoInfo clientVersion blockVersion =
 
 localChainSyncProtocol
   :: Trace IO Text
+  -> EventQueue
   -> ClientCodecs StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
-localChainSyncProtocol tracer codecs = mkInitiatorProtocolOnly tracer' codec peer
+localChainSyncProtocol tracer queue codecs = mkInitiatorProtocolOnly tracer' codec peer
   where
     trace' = appendName "ChainSync" tracer
     tracer' = Logging.toLogObject trace'
     codec = cChainSyncCodec codecs
-    peer = ChainSync.chainSyncClientPeer $ ChainSync.ChainSyncClient (mkChainSyncClient trace')
+    peer =
+      ChainSync.chainSyncClientPeer $
+        ChainSync.ChainSyncClient (mkChainSyncClient trace' queue)
 
 localTxSubmissionProtocol
   :: ClientCodecs StandardBlock IO
@@ -205,70 +211,75 @@ localTxMonitorProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
 
 mkChainSyncClient
   :: Trace IO Text
+  -> EventQueue
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
-mkChainSyncClient tracer =
-  pure $ ChainSync.SendMsgFindIntersect [genesisPoint] (mkFindIntersectClient tracer)
+mkChainSyncClient tracer queue =
+  pure $ ChainSync.SendMsgFindIntersect [genesisPoint] (mkFindIntersectClient tracer queue)
 
 mkFindIntersectClient
   :: Trace IO Text
+  -> EventQueue
   -> ClientStIntersect StandardBlock StandardPoint StandardTip IO a
-mkFindIntersectClient tracer =
+mkFindIntersectClient tracer queue =
   ChainSync.ClientStIntersect
     { recvMsgIntersectFound = intersectFound,
       recvMsgIntersectNotFound = intersectNotFound
     }
   where
-    intersectFound point tip = ChainSync.ChainSyncClient (mkRequestNextClient tracer (Just point) tip)
-    intersectNotFound tip = ChainSync.ChainSyncClient (mkRequestNextClient tracer Nothing tip)
+    intersectFound point tip = ChainSync.ChainSyncClient (mkRequestNextClient tracer queue (Just point) tip)
+    intersectNotFound tip = ChainSync.ChainSyncClient (mkRequestNextClient tracer queue Nothing tip)
 
 mkRequestNextClient
   :: Trace IO Text
+  -> EventQueue
   -> Maybe StandardPoint
   -> StandardTip
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
-mkRequestNextClient tracer _ tip = do
+mkRequestNextClient tracer queue _ tip = do
   let
     _tip' = getTipBlockNo tip
-  pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer)
+  pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer queue)
 
 mkClientStNext
   :: Trace IO Text
+  -> EventQueue
   -> ClientStNext StandardBlock StandardPoint StandardTip IO a
-mkClientStNext tracer =
+mkClientStNext tracer queue =
   ChainSync.ClientStNext
-    { recvMsgRollForward = rollForward tracer,
-      recvMsgRollBackward = rollBackward tracer
+    { recvMsgRollForward = rollForward tracer queue,
+      recvMsgRollBackward = rollBackward tracer queue
     }
 
 rollForward
   :: Trace IO Text
+  -> EventQueue
   -> StandardBlock
   -> StandardTip
   -> ChainSyncClient StandardBlock StandardPoint StandardTip IO a
-rollForward tracer header tip =
-  ChainSync.ChainSyncClient $ mkRequestNextClient' tracer (Left header) tip
+rollForward tracer queue header tip =
+  ChainSync.ChainSyncClient $ mkRequestNextClient' tracer queue (Left header) tip
 
 rollBackward
   :: Trace IO Text
+  -> EventQueue
   -> Point StandardBlock
   -> Tip StandardBlock
   -> ChainSyncClient StandardBlock StandardPoint StandardTip IO a
-rollBackward tracer point tip =
-  ChainSync.ChainSyncClient $ mkRequestNextClient' tracer (Right point) tip
+rollBackward tracer queue point tip =
+  ChainSync.ChainSyncClient $ mkRequestNextClient' tracer queue (Right point) tip
 
 mkRequestNextClient'
   :: Trace IO Text
+  -> EventQueue
   -> Either StandardBlock (Point StandardBlock)
   -> Tip StandardBlock
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
-mkRequestNextClient' tracer clientTip _ =
-  case clientTip of
-    Left _ -> do
-      -- TODO[sgillespie]: Process block
-      pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer)
-    Right _ -> do
-      -- TODO[sgillespie]: Process rollback
-      pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer)
+mkRequestNextClient' tracer queue clientTip _ = do
+  let
+    event = either (const Cfg.EvRollForward) (const Cfg.EvRollBackward) clientTip
+
+  atomically $ writeTBQueue (Cfg.unEventQueue queue) event
+  pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer queue)
 
 codecConfig
   :: ProtocolInfo StandardBlock

@@ -5,6 +5,8 @@ module Cardano.Indexer.Config
     NetworkMagic (..),
     TestnetMagic (..),
     SocketPath (..),
+    EventQueue (..),
+    Event (..),
     NodeConfigFile (..),
     TopologyConfigFile (..),
     DatabaseDir (..),
@@ -18,11 +20,13 @@ module Cardano.Indexer.Config
 
 import Cardano.BM.Trace (Trace)
 import Cardano.Ledger.Crypto (StandardCrypto)
+import Control.Concurrent.STM (TBQueue)
 import Ouroboros.Consensus.Block (Point)
 import Ouroboros.Consensus.Cardano (CardanoBlock)
 import Ouroboros.Consensus.Node (ProtocolInfo)
 import Ouroboros.Network.Block (Tip)
 import Text.Show (Show (..))
+import UnliftIO (MonadUnliftIO)
 
 newtype AppT m a = AppT {runApp :: ReaderT Config m a}
   deriving newtype
@@ -30,7 +34,8 @@ newtype AppT m a = AppT {runApp :: ReaderT Config m a}
       Applicative,
       Monad,
       MonadIO,
-      MonadReader Config
+      MonadReader Config,
+      MonadUnliftIO
     )
 
 type App = AppT IO
@@ -39,7 +44,8 @@ data Config = Config
   { cfgMagic :: NetworkMagic,
     cfgSocketPath :: SocketPath,
     cfgProtocolInfo :: ProtocolInfo StandardBlock,
-    cfgTrace :: Trace IO Text
+    cfgTrace :: Trace IO Text,
+    cfgEvents :: EventQueue
   }
 
 data NetworkMagic
@@ -51,6 +57,14 @@ newtype TestnetMagic = TestnetMagic {unNetworkMagic :: Word32}
   deriving stock (Eq, Show)
 
 newtype SocketPath = SocketPath {unSocketPath :: FilePath}
+  deriving stock (Eq, Show)
+
+newtype EventQueue = EventQueue {unEventQueue :: TBQueue Event}
+  deriving stock (Eq)
+
+data Event
+  = EvRollForward
+  | EvRollBackward
   deriving stock (Eq, Show)
 
 newtype NodeConfigFile = NodeConfigFile {unNodeConfigFile :: FilePath}
