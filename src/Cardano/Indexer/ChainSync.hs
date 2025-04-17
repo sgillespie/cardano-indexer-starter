@@ -5,7 +5,13 @@ module Cardano.Indexer.ChainSync
   ( runNodeClient,
   ) where
 
-import Cardano.Indexer.Config (App, StandardBlock, StandardPoint, StandardTip, ReactorQueue)
+import Cardano.Indexer.Config
+  ( App,
+    ReactorQueue,
+    StandardBlock,
+    StandardPoint,
+    StandardTip,
+  )
 import Cardano.Indexer.Config qualified as Cfg
 
 import Cardano.BM.Data.LogItem (LoggerName)
