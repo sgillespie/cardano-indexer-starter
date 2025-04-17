@@ -20,6 +20,7 @@ import Cardano.Indexer.Config
     TopologyConfigFile,
   )
 import Cardano.Indexer.Config qualified as Config
+import Cardano.Indexer.Reactor (runReactor)
 
 import Cardano.Api (BlockType (..), Protocol (..))
 import Cardano.BM.Trace (stdoutTrace)
@@ -50,7 +51,7 @@ runIndexer CLI.Options{..} = do
           cfgSocketPath = optSocketPath,
           cfgProtocolInfo = protoInfo,
           cfgTrace = stdoutTrace,
-          cfgEvents = Config.EventQueue queue
+          cfgEvents = Config.ReactorQueue queue
         }
 
   Config.runAppT indexer config
@@ -59,7 +60,8 @@ indexer :: App ()
 indexer =
   mapConcurrently_
     identity
-    [ runNodeClient
+    [ runNodeClient,
+      runReactor
     ]
 
 loadProtocolInfo

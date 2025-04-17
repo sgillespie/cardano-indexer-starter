@@ -5,7 +5,7 @@ module Cardano.Indexer.ChainSync
   ( runNodeClient,
   ) where
 
-import Cardano.Indexer.Config (App, EventQueue, StandardBlock, StandardPoint, StandardTip)
+import Cardano.Indexer.Config (App, StandardBlock, StandardPoint, StandardTip, ReactorQueue)
 import Cardano.Indexer.Config qualified as Cfg
 
 import Cardano.BM.Data.LogItem (LoggerName)
@@ -156,7 +156,7 @@ params (Cfg.SocketPath path) =
 protocols
   :: Trace IO Text
   -> ProtocolInfo StandardBlock
-  -> EventQueue
+  -> ReactorQueue
   -> NodeToClientVersion
   -> BlockNodeToClientVersion StandardBlock
   -> InitiatorProtocols () Void
@@ -172,7 +172,7 @@ protocols tracer protoInfo queue clientVersion blockVersion =
 
 localChainSyncProtocol
   :: Trace IO Text
-  -> EventQueue
+  -> ReactorQueue
   -> ClientCodecs StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
 localChainSyncProtocol tracer queue codecs = mkInitiatorProtocolOnly tracer' codec peer
@@ -211,14 +211,14 @@ localTxMonitorProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
 
 mkChainSyncClient
   :: Trace IO Text
-  -> EventQueue
+  -> ReactorQueue
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
 mkChainSyncClient tracer queue =
   pure $ ChainSync.SendMsgFindIntersect [genesisPoint] (mkFindIntersectClient tracer queue)
 
 mkFindIntersectClient
   :: Trace IO Text
-  -> EventQueue
+  -> ReactorQueue
   -> ClientStIntersect StandardBlock StandardPoint StandardTip IO a
 mkFindIntersectClient tracer queue =
   ChainSync.ClientStIntersect
@@ -231,7 +231,7 @@ mkFindIntersectClient tracer queue =
 
 mkRequestNextClient
   :: Trace IO Text
-  -> EventQueue
+  -> ReactorQueue
   -> Maybe StandardPoint
   -> StandardTip
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
@@ -242,7 +242,7 @@ mkRequestNextClient tracer queue _ tip = do
 
 mkClientStNext
   :: Trace IO Text
-  -> EventQueue
+  -> ReactorQueue
   -> ClientStNext StandardBlock StandardPoint StandardTip IO a
 mkClientStNext tracer queue =
   ChainSync.ClientStNext
@@ -252,7 +252,7 @@ mkClientStNext tracer queue =
 
 rollForward
   :: Trace IO Text
-  -> EventQueue
+  -> ReactorQueue
   -> StandardBlock
   -> StandardTip
   -> ChainSyncClient StandardBlock StandardPoint StandardTip IO a
@@ -261,7 +261,7 @@ rollForward tracer queue header tip =
 
 rollBackward
   :: Trace IO Text
-  -> EventQueue
+  -> ReactorQueue
   -> Point StandardBlock
   -> Tip StandardBlock
   -> ChainSyncClient StandardBlock StandardPoint StandardTip IO a
@@ -270,15 +270,15 @@ rollBackward tracer queue point tip =
 
 mkRequestNextClient'
   :: Trace IO Text
-  -> EventQueue
+  -> ReactorQueue
   -> Either StandardBlock (Point StandardBlock)
   -> Tip StandardBlock
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
 mkRequestNextClient' tracer queue clientTip _ = do
   let
-    event = either (const Cfg.EvRollForward) (const Cfg.EvRollBackward) clientTip
+    event = either (const Cfg.WriteBlock) (const Cfg.RollbackBlock) clientTip
 
-  atomically $ writeTBQueue (Cfg.unEventQueue queue) event
+  atomically $ writeTBQueue (Cfg.unReactorQueue queue) event
   pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer queue)
 
 codecConfig

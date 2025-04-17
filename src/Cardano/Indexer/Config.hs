@@ -5,8 +5,8 @@ module Cardano.Indexer.Config
     NetworkMagic (..),
     TestnetMagic (..),
     SocketPath (..),
-    EventQueue (..),
-    Event (..),
+    ReactorQueue (..),
+    ReactorActions (..),
     NodeConfigFile (..),
     TopologyConfigFile (..),
     DatabaseDir (..),
@@ -45,7 +45,7 @@ data Config = Config
     cfgSocketPath :: SocketPath,
     cfgProtocolInfo :: ProtocolInfo StandardBlock,
     cfgTrace :: Trace IO Text,
-    cfgEvents :: EventQueue
+    cfgEvents :: ReactorQueue
   }
 
 data NetworkMagic
@@ -59,13 +59,14 @@ newtype TestnetMagic = TestnetMagic {unNetworkMagic :: Word32}
 newtype SocketPath = SocketPath {unSocketPath :: FilePath}
   deriving stock (Eq, Show)
 
-newtype EventQueue = EventQueue {unEventQueue :: TBQueue Event}
+newtype ReactorQueue = ReactorQueue {unReactorQueue :: TBQueue ReactorActions}
   deriving stock (Eq)
 
-data Event
-  = EvRollForward
-  | EvRollBackward
-  deriving stock (Eq, Show)
+data ReactorActions
+  = WriteBlock
+  | RollbackBlock
+  | Finish
+  deriving stock (Eq, Enum, Ord, Show)
 
 newtype NodeConfigFile = NodeConfigFile {unNodeConfigFile :: FilePath}
   deriving stock (Eq, Show)
