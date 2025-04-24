@@ -7,12 +7,15 @@ module Cardano.Indexer.Config
     SocketPath (..),
     ReactorQueue (..),
     ReactorActions (..),
+    ServerTip (..),
+    LedgerState (..),
     NodeConfigFile (..),
     TopologyConfigFile (..),
     DatabaseDir (..),
     StandardBlock,
     StandardTip,
     StandardPoint,
+    StandardServerTip,
     AppError (..),
     runAppT,
     networkMagicId,
@@ -20,10 +23,14 @@ module Cardano.Indexer.Config
 
 import Cardano.BM.Trace (Trace)
 import Cardano.Ledger.Crypto (StandardCrypto)
+import Control.Concurrent.Class.MonadSTM.Strict (StrictTVar)
 import Control.Concurrent.STM (TBQueue)
 import Ouroboros.Consensus.Block (Point)
 import Ouroboros.Consensus.Cardano (CardanoBlock)
+import Ouroboros.Consensus.Ledger.Extended (ExtLedgerState)
 import Ouroboros.Consensus.Node (ProtocolInfo)
+import Ouroboros.Consensus.Protocol.Praos ()
+import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Network.Block (Tip)
 import Text.Show (Show (..))
 import UnliftIO (MonadUnliftIO)
@@ -45,7 +52,8 @@ data Config = Config
     cfgSocketPath :: SocketPath,
     cfgProtocolInfo :: ProtocolInfo StandardBlock,
     cfgTrace :: Trace IO Text,
-    cfgEvents :: ReactorQueue
+    cfgEvents :: ReactorQueue,
+    cfgLedgerState :: StrictTVar IO LedgerState
   }
 
 data NetworkMagic
@@ -63,10 +71,23 @@ newtype ReactorQueue = ReactorQueue {unReactorQueue :: TBQueue ReactorActions}
   deriving stock (Eq)
 
 data ReactorActions
-  = WriteBlock
+  = WriteBlock StandardServerTip StandardBlock
   | RollbackBlock
+      StandardServerTip
+      StandardPoint
+      ( StandardServerTip
+        -> StandardPoint
+        -> IO ()
+      )
   | Finish
-  deriving stock (Eq, Enum, Ord, Show)
+
+newtype ServerTip blk = ServerTip {unServerTip :: Tip blk}
+  deriving stock (Eq, Show)
+
+type StandardServerTip = ServerTip StandardBlock
+
+newtype LedgerState = LedgerState {unLedgerState :: ExtLedgerState StandardBlock}
+  deriving stock (Eq, Show)
 
 newtype NodeConfigFile = NodeConfigFile {unNodeConfigFile :: FilePath}
   deriving stock (Eq, Show)

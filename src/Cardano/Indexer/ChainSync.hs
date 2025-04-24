@@ -34,14 +34,18 @@ import Cardano.Client.Subscription
   )
 import Cardano.Client.Subscription qualified as Subscription
 import Cardano.Tracing.OrphanInstances.Network ()
-import Control.Concurrent.STM (writeTBQueue)
+import Control.Concurrent.STM (putTMVar, takeTMVar, writeTBQueue)
+import Control.Concurrent.STM.TMVar (newEmptyTMVarIO)
+import Control.Monad.Extra (whenJust)
 import Control.Tracer (nullTracer)
+import Data.List.NonEmpty qualified as NonEmpty
 import Network.Mux (Mode (..))
 import Network.TypedProtocol (IsPipelined (..), PeerRole (..), Protocol (..))
 import Network.TypedProtocol.Codec (Codec)
 import Network.TypedProtocol.Peer (Peer)
 import Network.TypedProtocol.Stateful.Codec qualified as Stateful
 import Network.TypedProtocol.Stateful.Peer qualified as Stateful
+import Ouroboros.Consensus.Block (Point (..))
 import Ouroboros.Consensus.Cardano.Node ()
 import Ouroboros.Consensus.Config (configCodec)
 import Ouroboros.Consensus.Network.NodeToClient (ClientCodecs, Codecs' (..), clientCodecs)
@@ -51,7 +55,7 @@ import Ouroboros.Consensus.Node.NetworkProtocolVersion qualified as ProtoVersion
 import Ouroboros.Consensus.Protocol.Praos ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Consensus.Util (ShowProxy)
-import Ouroboros.Network.Block (Point, Tip, genesisPoint, getTipBlockNo)
+import Ouroboros.Network.Block (Tip, genesisPoint)
 import Ouroboros.Network.Driver.Stateful qualified as Stateful
 import Ouroboros.Network.Magic (NetworkMagic (..))
 import Ouroboros.Network.Mux (RunMiniProtocolWithMinimalCtx)
@@ -59,8 +63,7 @@ import Ouroboros.Network.Mux qualified as Mux
 import Ouroboros.Network.NodeToClient (LocalAddress, NodeToClientVersion, TraceSendRecv)
 import Ouroboros.Network.NodeToClient qualified as NodeToClient
 import Ouroboros.Network.Protocol.ChainSync.Client
-  ( ChainSyncClient,
-    ClientStIdle,
+  ( ClientStIdle,
     ClientStIntersect,
     ClientStNext,
   )
@@ -116,10 +119,9 @@ runNodeClient = do
   tracer <- asks Cfg.cfgTrace
   queue <- asks Cfg.cfgEvents
 
-  liftIO $
+  liftIO $ do
     logError (appendName "ChainSync" tracer) "Starting chainsync client"
 
-  liftIO $
     NodeToClient.withIOManager $ \ioManager ->
       Subscription.subscribe
         (NodeToClient.localSnocket ioManager)
@@ -156,8 +158,8 @@ params (Cfg.SocketPath path) =
     }
   where
     whenComplete :: Either SomeException a -> Decision
-    whenComplete (Left _) = Subscription.Reconnect
-    whenComplete _ = Subscription.Abort
+    whenComplete (Left _) = Subscription.Abort
+    whenComplete (Right _) = Subscription.Abort
 
 protocols
   :: Trace IO Text
@@ -183,12 +185,13 @@ localChainSyncProtocol
   -> InitiatorRunMiniProtocol () Void
 localChainSyncProtocol tracer queue codecs = mkInitiatorProtocolOnly tracer' codec peer
   where
-    trace' = appendName "ChainSync" tracer
     tracer' = Logging.toLogObject trace'
+    trace' = appendName "ChainSync" tracer
     codec = cChainSyncCodec codecs
     peer =
       ChainSync.chainSyncClientPeer $
-        ChainSync.ChainSyncClient (mkChainSyncClient trace' queue)
+        ChainSync.ChainSyncClient $
+          mkChainSyncClient trace' queue (NonEmpty.singleton genesisPoint)
 
 localTxSubmissionProtocol
   :: ClientCodecs StandardBlock IO
@@ -218,9 +221,13 @@ localTxMonitorProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
 mkChainSyncClient
   :: Trace IO Text
   -> ReactorQueue
+  -> NonEmpty StandardPoint
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
-mkChainSyncClient tracer queue =
-  pure $ ChainSync.SendMsgFindIntersect [genesisPoint] (mkFindIntersectClient tracer queue)
+mkChainSyncClient tracer queue points =
+  pure $ ChainSync.SendMsgFindIntersect points' findIntersectClient
+  where
+    points' = toList points
+    findIntersectClient = mkFindIntersectClient tracer queue
 
 mkFindIntersectClient
   :: Trace IO Text
@@ -228,22 +235,26 @@ mkFindIntersectClient
   -> ClientStIntersect StandardBlock StandardPoint StandardTip IO a
 mkFindIntersectClient tracer queue =
   ChainSync.ClientStIntersect
-    { recvMsgIntersectFound = intersectFound,
-      recvMsgIntersectNotFound = intersectNotFound
+    { recvMsgIntersectFound = const requestNextClient,
+      recvMsgIntersectNotFound = requestNextClient
     }
   where
-    intersectFound point tip = ChainSync.ChainSyncClient (mkRequestNextClient tracer queue (Just point) tip)
-    intersectNotFound tip = ChainSync.ChainSyncClient (mkRequestNextClient tracer queue Nothing tip)
+    requestNextClient =
+      ChainSync.ChainSyncClient . mkRequestNextClient tracer queue Nothing
 
 mkRequestNextClient
   :: Trace IO Text
   -> ReactorQueue
-  -> Maybe StandardPoint
-  -> StandardTip
+  -> Maybe StandardBlock
+  -> Tip StandardBlock
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
-mkRequestNextClient tracer queue _ tip = do
-  let
-    _tip' = getTipBlockNo tip
+mkRequestNextClient tracer queue clientBlock serverTip = do
+  whenJust clientBlock $ \block -> do
+    let
+      event = Cfg.WriteBlock (Cfg.ServerTip serverTip) block
+
+    atomically $ writeTBQueue (Cfg.unReactorQueue queue) event
+
   pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer queue)
 
 mkClientStNext
@@ -252,40 +263,44 @@ mkClientStNext
   -> ClientStNext StandardBlock StandardPoint StandardTip IO a
 mkClientStNext tracer queue =
   ChainSync.ClientStNext
-    { recvMsgRollForward = rollForward tracer queue,
-      recvMsgRollBackward = rollBackward tracer queue
+    { recvMsgRollForward = rollForward,
+      recvMsgRollBackward = rollBackward
     }
+  where
+    rollForward header tip =
+      ChainSync.ChainSyncClient $ mkRequestNextClient tracer queue (Just header) tip
 
-rollForward
+    rollBackward point tip =
+      ChainSync.ChainSyncClient $ mkRollBackClient tracer queue point tip
+
+mkRollBackClient
   :: Trace IO Text
   -> ReactorQueue
-  -> StandardBlock
-  -> StandardTip
-  -> ChainSyncClient StandardBlock StandardPoint StandardTip IO a
-rollForward tracer queue header tip =
-  ChainSync.ChainSyncClient $ mkRequestNextClient' tracer queue (Left header) tip
-
-rollBackward
-  :: Trace IO Text
-  -> ReactorQueue
-  -> Point StandardBlock
-  -> Tip StandardBlock
-  -> ChainSyncClient StandardBlock StandardPoint StandardTip IO a
-rollBackward tracer queue point tip =
-  ChainSync.ChainSyncClient $ mkRequestNextClient' tracer queue (Right point) tip
-
-mkRequestNextClient'
-  :: Trace IO Text
-  -> ReactorQueue
-  -> Either StandardBlock (Point StandardBlock)
+  -> StandardPoint
   -> Tip StandardBlock
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
-mkRequestNextClient' tracer queue clientTip _ = do
-  let
-    event = either (const Cfg.WriteBlock) (const Cfg.RollbackBlock) clientTip
+mkRollBackClient tracer queue point serverTip = do
+  res <- newEmptyTMVarIO
 
+  let
+    -- Create the rollback event
+    event = Cfg.RollbackBlock (Cfg.ServerTip serverTip) point whenComplete
+    -- Notify us when the rollback is completed, by writing the actual block we rolled back to
+    -- into an MVar. When it's filled we know the work is complete.
+    whenComplete _ newPoint = atomically $ putTMVar res newPoint
+
+  -- Write the rollback event
   atomically $ writeTBQueue (Cfg.unReactorQueue queue) event
-  pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer queue)
+  -- Wait for it to complete
+  newPoint <- atomically $ takeTMVar res
+
+  -- If we rolled back to the same point as the chain sync client, we can start processing blocks
+  -- right away. Otherwise, we'll need to notify the server which point we need to continue from.
+  if newPoint == point
+    then pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer queue)
+    else
+      pure $
+        ChainSync.SendMsgFindIntersect [newPoint] (mkFindIntersectClient tracer queue)
 
 codecConfig
   :: ProtocolInfo StandardBlock

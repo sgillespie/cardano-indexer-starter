@@ -25,6 +25,7 @@ common all
   build-depends:
     base ^>=4.18.2.1,
     cardano-prelude,
+    extra,
     transformers,
 
   default-extensions:
@@ -69,6 +70,7 @@ library
     ouroboros-network-framework,
     ouroboros-network-protocols,
     stm,
+    strict-stm,
     typed-protocols,
     typed-protocols-stateful,
     unliftio,

@@ -35,14 +35,16 @@ import Cardano.Node.Configuration.POM
 import Cardano.Node.Protocol (SomeConsensusProtocol, mkConsensusProtocol)
 import Cardano.Node.Protocol.Types (SomeConsensusProtocol (..))
 import Cardano.Node.Types (ConfigYamlFilePath (..), TopologyFile (..))
+import Control.Concurrent.Class.MonadSTM.Strict (newTVarIO)
 import Control.Concurrent.STM (newTBQueueIO)
 import Control.Monad.Trans.Except (except)
-import Ouroboros.Consensus.Node (NodeDatabasePaths (..), ProtocolInfo)
+import Ouroboros.Consensus.Node (NodeDatabasePaths (..), ProtocolInfo (..))
 import UnliftIO.Async (mapConcurrently_)
 
 runIndexer :: Options -> IO ()
 runIndexer CLI.Options{..} = do
   protoInfo <- loadProtocolInfo optNodeConfig optTopologyConfig optDatabaseDir
+  ledgerState <- newTVarIO $ Config.LedgerState (pInfoInitLedger protoInfo)
   queue <- newTBQueueIO 50 -- arbitrary
   let
     config =
@@ -51,7 +53,8 @@ runIndexer CLI.Options{..} = do
           cfgSocketPath = optSocketPath,
           cfgProtocolInfo = protoInfo,
           cfgTrace = stdoutTrace,
-          cfgEvents = Config.ReactorQueue queue
+          cfgEvents = Config.ReactorQueue queue,
+          cfgLedgerState = ledgerState
         }
 
   Config.runAppT indexer config
