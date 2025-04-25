@@ -34,8 +34,6 @@ import Cardano.Client.Subscription
   )
 import Cardano.Client.Subscription qualified as Subscription
 import Cardano.Tracing.OrphanInstances.Network ()
-import Control.Concurrent.STM (putTMVar, takeTMVar, writeTBQueue)
-import Control.Concurrent.STM.TMVar (newEmptyTMVarIO)
 import Control.Monad.Extra (whenJust)
 import Control.Tracer (nullTracer)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -70,6 +68,8 @@ import Ouroboros.Network.Protocol.ChainSync.Client
 import Ouroboros.Network.Protocol.ChainSync.Client qualified as ChainSync
 import Ouroboros.Network.Protocol.ChainSync.Type (ChainSync)
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (State (..))
+import Control.Concurrent.Class.MonadSTM.Strict (writeTBQueue, newEmptyTMVarIO, putTMVar)
+import Control.Concurrent.Class.MonadSTM.Strict.TMVar (takeTMVar)
 
 type InitiatorProtocols =
   NodeToClientProtocols

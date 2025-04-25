@@ -26,17 +26,16 @@ import Cardano.Api (BlockType (..), Protocol (..))
 import Cardano.BM.Trace (stdoutTrace)
 import Cardano.Indexer.ChainSync (runNodeClient)
 import Cardano.Node.Configuration.POM
-  ( NodeConfiguration (..),
-    PartialNodeConfiguration (..),
+  ( NodeConfiguration,
     defaultPartialNodeConfiguration,
     makeNodeConfiguration,
     parseNodeConfigurationFP,
   )
+import Cardano.Node.Configuration.POM qualified as POM
 import Cardano.Node.Protocol (SomeConsensusProtocol, mkConsensusProtocol)
 import Cardano.Node.Protocol.Types (SomeConsensusProtocol (..))
 import Cardano.Node.Types (ConfigYamlFilePath (..), TopologyFile (..))
-import Control.Concurrent.Class.MonadSTM.Strict (newTVarIO)
-import Control.Concurrent.STM (newTBQueueIO)
+import Control.Concurrent.Class.MonadSTM.Strict (newTBQueueIO, newTVarIO)
 import Control.Monad.Trans.Except (except)
 import Ouroboros.Consensus.Node (NodeDatabasePaths (..), ProtocolInfo (..))
 import UnliftIO.Async (mapConcurrently_)
@@ -98,9 +97,9 @@ loadNodeConfig cfgFile topoFile dbDir = ExceptT $ do
     partialCfg' =
       defaultPartialNodeConfiguration
         <> ( partialCfg
-              { pncConfigFile = Last configYamlFile,
-                pncTopologyFile = Last topologyFile,
-                pncDatabaseFile = Last dbFile
+              { POM.pncConfigFile = Last configYamlFile,
+                POM.pncTopologyFile = Last topologyFile,
+                POM.pncDatabaseFile = Last dbFile
               }
            )
     cfg = makeNodeConfiguration partialCfg'
@@ -111,8 +110,8 @@ mkConsensusProtocol' :: NodeConfiguration -> ExceptT AppError IO SomeConsensusPr
 mkConsensusProtocol' cfg =
   withExceptT (Config.NodeConfigError . textShow) $
     mkConsensusProtocol
-      (ncProtocolConfig cfg)
-      (Just $ ncProtocolFiles cfg)
+      (POM.ncProtocolConfig cfg)
+      (Just $ POM.ncProtocolFiles cfg)
 
 mkCardanoBlockType
   :: SomeConsensusProtocol

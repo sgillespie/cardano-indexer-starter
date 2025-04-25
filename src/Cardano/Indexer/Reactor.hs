@@ -13,8 +13,7 @@ import Cardano.Indexer.Config
   )
 import Cardano.Indexer.Config qualified as Cfg
 
-import Control.Concurrent.Class.MonadSTM.Strict (readTVar, writeTVar)
-import Control.Concurrent.STM.TBQueue (readTBQueue)
+import Control.Concurrent.Class.MonadSTM.Strict (readTBQueue, readTVar, writeTVar)
 import Ouroboros.Consensus.Block (BlockNo (..), WithOrigin (..), blockNo)
 import Ouroboros.Consensus.Ledger.Abstract (tickThenReapply)
 import Ouroboros.Consensus.Ledger.Extended (ExtLedgerCfg (..))

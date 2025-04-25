@@ -23,8 +23,7 @@ module Cardano.Indexer.Config
 
 import Cardano.BM.Trace (Trace)
 import Cardano.Ledger.Crypto (StandardCrypto)
-import Control.Concurrent.Class.MonadSTM.Strict (StrictTVar)
-import Control.Concurrent.STM (TBQueue)
+import Control.Concurrent.Class.MonadSTM.Strict (StrictTVar, StrictTBQueue)
 import Ouroboros.Consensus.Block (Point)
 import Ouroboros.Consensus.Cardano (CardanoBlock)
 import Ouroboros.Consensus.Ledger.Extended (ExtLedgerState)
@@ -67,8 +66,7 @@ newtype TestnetMagic = TestnetMagic {unNetworkMagic :: Word32}
 newtype SocketPath = SocketPath {unSocketPath :: FilePath}
   deriving stock (Eq, Show)
 
-newtype ReactorQueue = ReactorQueue {unReactorQueue :: TBQueue ReactorActions}
-  deriving stock (Eq)
+newtype ReactorQueue = ReactorQueue {unReactorQueue :: StrictTBQueue IO ReactorActions}
 
 data ReactorActions
   = WriteBlock StandardServerTip StandardBlock
