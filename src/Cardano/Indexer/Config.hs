@@ -66,10 +66,9 @@ newtype TestnetMagic = TestnetMagic {unNetworkMagic :: Word32}
 newtype SocketPath = SocketPath {unSocketPath :: FilePath}
   deriving stock (Eq, Show)
 
-newtype ReactorQueue m = 
-  ReactorQueue {unReactorQueue :: StrictTBQueue m ReactorActions }
+newtype ReactorQueue m = ReactorQueue {unReactorQueue :: StrictTBQueue m ReactorActions}
 
-data ReactorActions 
+data ReactorActions
   = WriteBlock StandardServerTip StandardBlock
   | RollbackBlock
       StandardServerTip

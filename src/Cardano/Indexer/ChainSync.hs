@@ -179,7 +179,7 @@ protocols tracer protoInfo queue clientVersion blockVersion =
 
 localChainSyncProtocol
   :: Trace IO Text
-  -> ReactorQueue IO 
+  -> ReactorQueue IO
   -> ClientCodecs StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
 localChainSyncProtocol tracer queue codecs = mkInitiatorProtocolOnly tracer' codec peer

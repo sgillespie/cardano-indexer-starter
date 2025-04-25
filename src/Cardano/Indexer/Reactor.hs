@@ -67,7 +67,7 @@ applyLedgerState protoInfo block = mapLedgerState (tickThenReapply ledgerCfg blo
     ledgerCfg = ExtLedgerCfg (pInfoConfig protoInfo)
     mapLedgerState f (Cfg.LedgerState s) = Cfg.LedgerState (f s)
 
-reportBlock :: MonadIO io => StandardServerTip -> StandardBlock -> io ()
+reportBlock :: (MonadIO io) => StandardServerTip -> StandardBlock -> io ()
 reportBlock (Cfg.ServerTip serverTip) clientBlock = do
   let
     -- Get the block number
