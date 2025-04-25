@@ -20,7 +20,7 @@ import Ouroboros.Consensus.Ledger.Abstract (tickThenReapply)
 import Ouroboros.Consensus.Ledger.Extended (ExtLedgerCfg (..))
 import Ouroboros.Consensus.Node (ProtocolInfo (..))
 import Ouroboros.Network.Block (Point (..), Tip (..), getTipBlockNo)
-import Ouroboros.Network.Point (WithOrigin (..), fromWithOrigin, withOrigin)
+import Ouroboros.Network.Point (WithOrigin (..), withOrigin)
 import UnliftIO (atomically, hFlush)
 import Prelude hiding (atomically)
 
