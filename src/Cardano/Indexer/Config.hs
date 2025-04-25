@@ -23,7 +23,7 @@ module Cardano.Indexer.Config
 
 import Cardano.BM.Trace (Trace)
 import Cardano.Ledger.Crypto (StandardCrypto)
-import Control.Concurrent.Class.MonadSTM.Strict (StrictTVar, StrictTBQueue)
+import Control.Concurrent.Class.MonadSTM.Strict (StrictTBQueue, StrictTVar)
 import Ouroboros.Consensus.Block (Point)
 import Ouroboros.Consensus.Cardano (CardanoBlock)
 import Ouroboros.Consensus.Ledger.Extended (ExtLedgerState)
@@ -34,25 +34,25 @@ import Ouroboros.Network.Block (Tip)
 import Text.Show (Show (..))
 import UnliftIO (MonadUnliftIO)
 
-newtype AppT m a = AppT {runApp :: ReaderT Config m a}
+newtype AppT m a = AppT {runApp :: ReaderT (Config m) m a}
   deriving newtype
     ( Functor,
       Applicative,
       Monad,
       MonadIO,
-      MonadReader Config,
+      MonadReader (Config m),
       MonadUnliftIO
     )
 
 type App = AppT IO
 
-data Config = Config
+data Config m = Config
   { cfgMagic :: NetworkMagic,
     cfgSocketPath :: SocketPath,
     cfgProtocolInfo :: ProtocolInfo StandardBlock,
-    cfgTrace :: Trace IO Text,
-    cfgEvents :: ReactorQueue,
-    cfgLedgerState :: StrictTVar IO LedgerState
+    cfgTrace :: Trace m Text,
+    cfgEvents :: ReactorQueue m,
+    cfgLedgerState :: StrictTVar m LedgerState
   }
 
 data NetworkMagic
@@ -66,9 +66,10 @@ newtype TestnetMagic = TestnetMagic {unNetworkMagic :: Word32}
 newtype SocketPath = SocketPath {unSocketPath :: FilePath}
   deriving stock (Eq, Show)
 
-newtype ReactorQueue = ReactorQueue {unReactorQueue :: StrictTBQueue IO ReactorActions}
+newtype ReactorQueue m = 
+  ReactorQueue {unReactorQueue :: StrictTBQueue m ReactorActions }
 
-data ReactorActions
+data ReactorActions 
   = WriteBlock StandardServerTip StandardBlock
   | RollbackBlock
       StandardServerTip
@@ -113,7 +114,7 @@ instance Show AppError where
   show (NodeConfigError err) = "Node configuration error: " <> toString err
   show ImpossibleError = "The impossible occurred!"
 
-runAppT :: AppT m a -> Config -> m a
+runAppT :: AppT m a -> Config m -> m a
 runAppT = runReaderT . runApp
 
 networkMagicId :: NetworkMagic -> Word32

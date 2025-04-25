@@ -27,7 +27,7 @@ runReactor :: App ()
 runReactor = loop =<< asks Cfg.cfgEvents
   where
     loop queue = do
-      msg <- liftIO . atomically . readTBQueue . Cfg.unReactorQueue $ queue
+      msg <- atomically $ readTBQueue (Cfg.unReactorQueue queue)
       res <- runReactorAction msg
       case msg of
         Cfg.Finish -> pure res
@@ -43,7 +43,7 @@ writeBlock serverTip block = do
   -- Add current block to ledger state
   void $ applyBlock block
   -- Print status to console
-  liftIO $ reportBlock serverTip block
+  reportBlock serverTip block
 
 applyBlock :: StandardBlock -> App LedgerState
 applyBlock block = do
@@ -67,7 +67,7 @@ applyLedgerState protoInfo block = mapLedgerState (tickThenReapply ledgerCfg blo
     ledgerCfg = ExtLedgerCfg (pInfoConfig protoInfo)
     mapLedgerState f (Cfg.LedgerState s) = Cfg.LedgerState (f s)
 
-reportBlock :: StandardServerTip -> StandardBlock -> IO ()
+reportBlock :: MonadIO io => StandardServerTip -> StandardBlock -> io ()
 reportBlock (Cfg.ServerTip serverTip) clientBlock = do
   let
     -- Get the block number
@@ -116,13 +116,12 @@ rollbackBlock serverTip point whenFinished = do
     newState = Cfg.LedgerState (pInfoInitLedger protoInfo)
   atomically $ writeTVar ledgerState newState
 
-  liftIO $ do
-    putStr $
-      "\rRolled back to block: "
-        <> rollbackBlockNo
-        <> " of "
-        <> serverBlockNo
-        <> "          " -- Add a some extra space to avoid garbled output
-    hFlush stdout
+  putStr $
+    "\rRolled back to block: "
+      <> rollbackBlockNo
+      <> " of "
+      <> serverBlockNo
+      <> "          " -- Add a some extra space to avoid garbled output
+  hFlush stdout
 
-    whenFinished serverTip point
+  liftIO $ whenFinished serverTip point

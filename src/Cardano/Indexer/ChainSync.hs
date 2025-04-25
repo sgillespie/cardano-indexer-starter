@@ -34,6 +34,7 @@ import Cardano.Client.Subscription
   )
 import Cardano.Client.Subscription qualified as Subscription
 import Cardano.Tracing.OrphanInstances.Network ()
+import Control.Concurrent.Class.MonadSTM.Strict qualified as STM
 import Control.Monad.Extra (whenJust)
 import Control.Tracer (nullTracer)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -68,8 +69,6 @@ import Ouroboros.Network.Protocol.ChainSync.Client
 import Ouroboros.Network.Protocol.ChainSync.Client qualified as ChainSync
 import Ouroboros.Network.Protocol.ChainSync.Type (ChainSync)
 import Ouroboros.Network.Protocol.LocalStateQuery.Type (State (..))
-import Control.Concurrent.Class.MonadSTM.Strict (writeTBQueue, newEmptyTMVarIO, putTMVar)
-import Control.Concurrent.Class.MonadSTM.Strict.TMVar (takeTMVar)
 
 type InitiatorProtocols =
   NodeToClientProtocols
@@ -164,7 +163,7 @@ params (Cfg.SocketPath path) =
 protocols
   :: Trace IO Text
   -> ProtocolInfo StandardBlock
-  -> ReactorQueue
+  -> ReactorQueue IO
   -> NodeToClientVersion
   -> BlockNodeToClientVersion StandardBlock
   -> InitiatorProtocols () Void
@@ -180,7 +179,7 @@ protocols tracer protoInfo queue clientVersion blockVersion =
 
 localChainSyncProtocol
   :: Trace IO Text
-  -> ReactorQueue
+  -> ReactorQueue IO 
   -> ClientCodecs StandardBlock IO
   -> InitiatorRunMiniProtocol () Void
 localChainSyncProtocol tracer queue codecs = mkInitiatorProtocolOnly tracer' codec peer
@@ -220,7 +219,7 @@ localTxMonitorProtocol codecs = mkInitiatorProtocolOnly nullTracer codec peer
 
 mkChainSyncClient
   :: Trace IO Text
-  -> ReactorQueue
+  -> ReactorQueue IO
   -> NonEmpty StandardPoint
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
 mkChainSyncClient tracer queue points =
@@ -231,7 +230,7 @@ mkChainSyncClient tracer queue points =
 
 mkFindIntersectClient
   :: Trace IO Text
-  -> ReactorQueue
+  -> ReactorQueue IO
   -> ClientStIntersect StandardBlock StandardPoint StandardTip IO a
 mkFindIntersectClient tracer queue =
   ChainSync.ClientStIntersect
@@ -244,7 +243,7 @@ mkFindIntersectClient tracer queue =
 
 mkRequestNextClient
   :: Trace IO Text
-  -> ReactorQueue
+  -> ReactorQueue IO
   -> Maybe StandardBlock
   -> Tip StandardBlock
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
@@ -253,13 +252,13 @@ mkRequestNextClient tracer queue clientBlock serverTip = do
     let
       event = Cfg.WriteBlock (Cfg.ServerTip serverTip) block
 
-    atomically $ writeTBQueue (Cfg.unReactorQueue queue) event
+    atomically $ STM.writeTBQueue (Cfg.unReactorQueue queue) event
 
   pure $ ChainSync.SendMsgRequestNext mempty (mkClientStNext tracer queue)
 
 mkClientStNext
   :: Trace IO Text
-  -> ReactorQueue
+  -> ReactorQueue IO
   -> ClientStNext StandardBlock StandardPoint StandardTip IO a
 mkClientStNext tracer queue =
   ChainSync.ClientStNext
@@ -275,24 +274,24 @@ mkClientStNext tracer queue =
 
 mkRollBackClient
   :: Trace IO Text
-  -> ReactorQueue
+  -> ReactorQueue IO
   -> StandardPoint
   -> Tip StandardBlock
   -> IO (ClientStIdle StandardBlock StandardPoint StandardTip IO a)
 mkRollBackClient tracer queue point serverTip = do
-  res <- newEmptyTMVarIO
+  res <- STM.newEmptyTMVarIO
 
   let
     -- Create the rollback event
     event = Cfg.RollbackBlock (Cfg.ServerTip serverTip) point whenComplete
     -- Notify us when the rollback is completed, by writing the actual block we rolled back to
     -- into an MVar. When it's filled we know the work is complete.
-    whenComplete _ newPoint = atomically $ putTMVar res newPoint
+    whenComplete _ newPoint = atomically $ STM.putTMVar res newPoint
 
   -- Write the rollback event
-  atomically $ writeTBQueue (Cfg.unReactorQueue queue) event
+  atomically $ STM.writeTBQueue (Cfg.unReactorQueue queue) event
   -- Wait for it to complete
-  newPoint <- atomically $ takeTMVar res
+  newPoint <- atomically $ STM.takeTMVar res
 
   -- If we rolled back to the same point as the chain sync client, we can start processing blocks
   -- right away. Otherwise, we'll need to notify the server which point we need to continue from.
