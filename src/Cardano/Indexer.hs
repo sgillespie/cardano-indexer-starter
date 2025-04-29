@@ -23,7 +23,7 @@ import Cardano.Indexer.Config qualified as Config
 import Cardano.Indexer.Reactor (runReactor)
 
 import Cardano.Api (BlockType (..), Protocol (..))
-import Cardano.BM.Trace (stdoutTrace)
+import Cardano.BM.Trace (appendName, logError, stdoutTrace)
 import Cardano.Indexer.ChainSync (runNodeClient)
 import Cardano.Node.Configuration.POM
   ( NodeConfiguration,
@@ -35,10 +35,11 @@ import Cardano.Node.Configuration.POM qualified as POM
 import Cardano.Node.Protocol (SomeConsensusProtocol, mkConsensusProtocol)
 import Cardano.Node.Protocol.Types (SomeConsensusProtocol (..))
 import Cardano.Node.Types (ConfigYamlFilePath (..), TopologyFile (..))
-import Control.Concurrent.Class.MonadSTM.Strict (newTBQueueIO, newTVarIO)
+import Control.Concurrent.Class.MonadSTM.Strict (newTBQueueIO, newTVarIO, writeTBQueue)
 import Control.Monad.Trans.Except (except)
 import Ouroboros.Consensus.Node (NodeDatabasePaths (..), ProtocolInfo (..))
-import UnliftIO.Async (mapConcurrently_)
+import UnliftIO.Async qualified as UnliftIO
+import UnliftIO.Exception qualified as UnliftIO
 
 runIndexer :: Options -> IO ()
 runIndexer CLI.Options{..} = do
@@ -59,12 +60,26 @@ runIndexer CLI.Options{..} = do
   Config.runAppT indexer config
 
 indexer :: App ()
-indexer =
-  mapConcurrently_
-    identity
-    [ runNodeClient,
-      runReactor
-    ]
+indexer = do
+  withFinalizerAsync runReactor shutdownReactor $ \_ ->
+    UnliftIO.withAsync runNodeClient $ \nodeClient ->
+      UnliftIO.wait nodeClient
+  where
+    withFinalizerAsync action finalizer inner = UnliftIO.withAsync action $ \async' ->
+      inner async' `UnliftIO.finally` finalizer async'
+
+    shutdownReactor reactor = do
+      queue <- asks (Config.unReactorQueue . Config.cfgEvents)
+      tracer <- asks Config.cfgTrace
+
+      res <- UnliftIO.try $ do
+        liftIO $
+          atomically (writeTBQueue queue Config.Finish)
+        UnliftIO.wait reactor
+      case res of
+        Right () -> pure ()
+        Left (err :: SomeException) -> liftIO $ do
+          logError (appendName "Indexer" tracer) (toText $ displayException err)
 
 loadProtocolInfo
   :: NodeConfigFile

@@ -13,6 +13,7 @@ import Cardano.Indexer.Config
   )
 import Cardano.Indexer.Config qualified as Cfg
 
+import Cardano.BM.Trace (appendName, logError)
 import Control.Concurrent.Class.MonadSTM.Strict (readTBQueue, readTVar, writeTVar)
 import Ouroboros.Consensus.Block (BlockNo (..), WithOrigin (..), blockNo)
 import Ouroboros.Consensus.Ledger.Abstract (tickThenReapply)
@@ -35,7 +36,7 @@ runReactor = loop =<< asks Cfg.cfgEvents
 
 runReactorAction :: ReactorActions -> App ()
 runReactorAction (Cfg.WriteBlock serverTip block) = writeBlock serverTip block
-runReactorAction Cfg.Finish = pure ()
+runReactorAction Cfg.Finish = finish
 runReactorAction (Cfg.RollbackBlock serverTip point whenFinished) = rollbackBlock serverTip point whenFinished
 
 writeBlock :: StandardServerTip -> StandardBlock -> App ()
@@ -125,3 +126,11 @@ rollbackBlock serverTip point whenFinished = do
   hFlush stdout
 
   liftIO $ whenFinished serverTip point
+
+finish :: App ()
+finish = do
+  tracer <- asks Cfg.cfgTrace
+
+  liftIO $ do
+    putTextLn "" -- Clear the status line
+    logError (appendName "Reactor" tracer) "Received shutdown signal"
