@@ -38,6 +38,12 @@
             buildInputs = [ pkgs.haskellPackages.cabal-gild ];
             inputsFrom = [ formatter.devShell ];
           };
+
+          modules = [
+            {
+              packages.cardano-indexer-starter.ghcOptions = [ "-Werror" ];
+            }
+          ];
         };
 
         flake = project.flake { };

@@ -15,7 +15,6 @@ extra-doc-files: CHANGELOG.md
 common all
   ghc-options:
     -Wall
-    -Werror
 
   mixins:
     base hiding (Prelude),
