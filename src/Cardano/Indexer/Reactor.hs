@@ -14,6 +14,7 @@ import Cardano.Indexer.Config
 import Cardano.Indexer.Config qualified as Cfg
 
 import Cardano.BM.Trace (appendName, logError)
+import Cardano.Indexer.Ledger (writeLedgerSnapshot)
 import Control.Concurrent.Class.MonadSTM.Strict (readTBQueue, readTVar, writeTVar)
 import Ouroboros.Consensus.Block (BlockNo (..), WithOrigin (..), blockNo)
 import Ouroboros.Consensus.Ledger.Abstract (tickThenReapply)
@@ -134,3 +135,5 @@ finish = do
   liftIO $ do
     putTextLn "" -- Clear the status line
     logError (appendName "Reactor" tracer) "Received shutdown signal"
+
+  writeLedgerSnapshot

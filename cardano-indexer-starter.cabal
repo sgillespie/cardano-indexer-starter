@@ -48,6 +48,7 @@ library
     Cardano.Indexer.CLI
     Cardano.Indexer.ChainSync
     Cardano.Indexer.Config
+    Cardano.Indexer.Ledger
     Cardano.Indexer.Reactor
 
   build-depends:
