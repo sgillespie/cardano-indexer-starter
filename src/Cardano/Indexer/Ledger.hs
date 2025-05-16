@@ -20,7 +20,7 @@ import Ouroboros.Consensus.Ledger.Extended
 import Ouroboros.Consensus.Node (ProtocolInfo (..))
 import System.FilePath ((<.>), (</>))
 import UnliftIO qualified
-import UnliftIO.Directory (XdgDirectory (..), getXdgDirectory, createDirectoryIfMissing)
+import UnliftIO.Directory (XdgDirectory (..), createDirectoryIfMissing, getXdgDirectory)
 
 writeLedgerSnapshot :: App ()
 writeLedgerSnapshot = do
@@ -66,4 +66,3 @@ ledgerSnapshotFile ledgerState baseDir =
       case headerStatePoint header of
         GenesisPoint -> "0"
         BlockPoint (SlotNo slotNo') _ -> show slotNo'
-

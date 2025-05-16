@@ -69,7 +69,8 @@ newtype SocketPath = SocketPath {unSocketPath :: FilePath}
 newtype ReactorQueue m = ReactorQueue {unReactorQueue :: StrictTBQueue m ReactorActions}
 
 data ReactorActions
-  = WriteBlock StandardServerTip StandardBlock
+  = Init (StandardPoint -> IO ())
+  | WriteBlock StandardServerTip StandardBlock
   | RollbackBlock
       StandardServerTip
       StandardPoint

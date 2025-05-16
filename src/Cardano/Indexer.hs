@@ -35,7 +35,7 @@ import Cardano.Node.Configuration.POM qualified as POM
 import Cardano.Node.Protocol (SomeConsensusProtocol, mkConsensusProtocol)
 import Cardano.Node.Protocol.Types (SomeConsensusProtocol (..))
 import Cardano.Node.Types (ConfigYamlFilePath (..), TopologyFile (..))
-import Control.Concurrent.Class.MonadSTM.Strict (newTBQueueIO, newTVarIO, writeTBQueue)
+import Control.Concurrent.Class.MonadSTM.Strict qualified as STM
 import Control.Monad.Trans.Except (except)
 import Ouroboros.Consensus.Node (NodeDatabasePaths (..), ProtocolInfo (..))
 import UnliftIO.Async qualified as UnliftIO
@@ -44,8 +44,8 @@ import UnliftIO.Exception qualified as UnliftIO
 runIndexer :: Options -> IO ()
 runIndexer CLI.Options{..} = do
   protoInfo <- loadProtocolInfo optNodeConfig optTopologyConfig optDatabaseDir
-  ledgerState <- newTVarIO $ Config.LedgerState (pInfoInitLedger protoInfo)
-  queue <- newTBQueueIO 50 -- arbitrary
+  ledgerState <- STM.newTVarIO $ Config.LedgerState (pInfoInitLedger protoInfo)
+  queue <- STM.newTBQueueIO 50 -- arbitrary
   let
     config =
       Config.Config
@@ -61,8 +61,10 @@ runIndexer CLI.Options{..} = do
 
 indexer :: App ()
 indexer = do
-  withFinalizerAsync runReactor shutdownReactor $ \_ ->
-    UnliftIO.withAsync runNodeClient $ \nodeClient ->
+  withFinalizerAsync runReactor shutdownReactor $ \_ -> do
+    startPoint <- initReactor
+
+    UnliftIO.withAsync (runNodeClient startPoint) $ \nodeClient ->
       UnliftIO.wait nodeClient
   where
     withFinalizerAsync action finalizer inner = UnliftIO.withAsync action $ \async' ->
@@ -74,12 +76,24 @@ indexer = do
 
       res <- UnliftIO.try $ do
         liftIO $
-          atomically (writeTBQueue queue Config.Finish)
+          atomically (STM.writeTBQueue queue Config.Finish)
         UnliftIO.wait reactor
       case res of
         Right () -> pure ()
         Left (err :: SomeException) -> liftIO $ do
           logError (appendName "Indexer" tracer) (toText $ displayException err)
+
+    initReactor = do
+      queue <- asks (Config.unReactorQueue . Config.cfgEvents)
+      res <- liftIO STM.newEmptyTMVarIO
+
+      let
+        event = Config.Init whenComplete
+        whenComplete startPoint = atomically (STM.putTMVar res startPoint)
+
+      liftIO $ do
+        atomically (STM.writeTBQueue queue event)
+        atomically (STM.takeTMVar res)
 
 loadProtocolInfo
   :: NodeConfigFile

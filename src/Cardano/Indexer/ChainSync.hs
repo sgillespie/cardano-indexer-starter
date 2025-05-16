@@ -54,7 +54,7 @@ import Ouroboros.Consensus.Node.NetworkProtocolVersion qualified as ProtoVersion
 import Ouroboros.Consensus.Protocol.Praos ()
 import Ouroboros.Consensus.Shelley.Ledger.SupportsProtocol ()
 import Ouroboros.Consensus.Util (ShowProxy)
-import Ouroboros.Network.Block (Tip, genesisPoint)
+import Ouroboros.Network.Block (Tip)
 import Ouroboros.Network.Driver.Stateful qualified as Stateful
 import Ouroboros.Network.Magic (NetworkMagic (..))
 import Ouroboros.Network.Mux (RunMiniProtocolWithMinimalCtx)
@@ -110,8 +110,8 @@ instance Transformable Text IO (SubscriptionTrace ()) where
 
 instance Transformable Text IO (TraceSendRecv (ChainSync blk (Point blk) (Tip blk)))
 
-runNodeClient :: App ()
-runNodeClient = do
+runNodeClient :: StandardPoint -> App ()
+runNodeClient startPoint = do
   magicId <- asks (Cfg.networkMagicId . Cfg.cfgMagic)
   socketPath <- asks Cfg.cfgSocketPath
   protoInfo <- asks Cfg.cfgProtocolInfo
@@ -128,7 +128,7 @@ runNodeClient = do
         nodeToClientVersions
         (subscriptionTracers tracer)
         (params socketPath)
-        (protocols tracer protoInfo queue)
+        (protocols tracer protoInfo queue startPoint)
 
 nodeToClientVersions :: Map NodeToClientVersion (BlockNodeToClientVersion StandardBlock)
 nodeToClientVersions = ProtoVersion.supportedNodeToClientVersions (Proxy @StandardBlock)
@@ -164,12 +164,13 @@ protocols
   :: Trace IO Text
   -> ProtocolInfo StandardBlock
   -> ReactorQueue IO
+  -> StandardPoint
   -> NodeToClientVersion
   -> BlockNodeToClientVersion StandardBlock
   -> InitiatorProtocols () Void
-protocols tracer protoInfo queue clientVersion blockVersion =
+protocols tracer protoInfo queue startPoint clientVersion blockVersion =
   NodeToClient.NodeToClientProtocols
-    { localChainSyncProtocol = localChainSyncProtocol tracer queue codecs,
+    { localChainSyncProtocol = localChainSyncProtocol tracer queue codecs startPoint,
       localTxSubmissionProtocol = localTxSubmissionProtocol codecs,
       localStateQueryProtocol = localStateQueryProtocol codecs,
       localTxMonitorProtocol = localTxMonitorProtocol codecs
@@ -181,8 +182,10 @@ localChainSyncProtocol
   :: Trace IO Text
   -> ReactorQueue IO
   -> ClientCodecs StandardBlock IO
+  -> StandardPoint
   -> InitiatorRunMiniProtocol () Void
-localChainSyncProtocol tracer queue codecs = mkInitiatorProtocolOnly tracer' codec peer
+localChainSyncProtocol tracer queue codecs startPoint =
+  mkInitiatorProtocolOnly tracer' codec peer
   where
     tracer' = Logging.toLogObject trace'
     trace' = appendName "ChainSync" tracer
@@ -190,7 +193,7 @@ localChainSyncProtocol tracer queue codecs = mkInitiatorProtocolOnly tracer' cod
     peer =
       ChainSync.chainSyncClientPeer $
         ChainSync.ChainSyncClient $
-          mkChainSyncClient trace' queue (NonEmpty.singleton genesisPoint)
+          mkChainSyncClient trace' queue (NonEmpty.singleton startPoint)
 
 localTxSubmissionProtocol
   :: ClientCodecs StandardBlock IO

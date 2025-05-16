@@ -20,7 +20,7 @@ import Ouroboros.Consensus.Block (BlockNo (..), WithOrigin (..), blockNo)
 import Ouroboros.Consensus.Ledger.Abstract (tickThenReapply)
 import Ouroboros.Consensus.Ledger.Extended (ExtLedgerCfg (..))
 import Ouroboros.Consensus.Node (ProtocolInfo (..))
-import Ouroboros.Network.Block (Point (..), Tip (..), getTipBlockNo)
+import Ouroboros.Network.Block (Point (..), Tip (..), genesisPoint, getTipBlockNo)
 import Ouroboros.Network.Point (WithOrigin (..), withOrigin)
 import UnliftIO (atomically, hFlush)
 import Prelude hiding (atomically)
@@ -36,9 +36,18 @@ runReactor = loop =<< asks Cfg.cfgEvents
         _ -> loop queue
 
 runReactorAction :: ReactorActions -> App ()
+runReactorAction (Cfg.Init whenFinished) = init whenFinished
 runReactorAction (Cfg.WriteBlock serverTip block) = writeBlock serverTip block
 runReactorAction Cfg.Finish = finish
 runReactorAction (Cfg.RollbackBlock serverTip point whenFinished) = rollbackBlock serverTip point whenFinished
+
+init :: (StandardPoint -> IO ()) -> App ()
+init whenFinished = do
+  tracer <- asks Cfg.cfgTrace
+
+  liftIO $ do
+    logError (appendName "Reactor" tracer) "Received initialization signal"
+    whenFinished genesisPoint
 
 writeBlock :: StandardServerTip -> StandardBlock -> App ()
 writeBlock serverTip block = do
