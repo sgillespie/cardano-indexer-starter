@@ -20,7 +20,7 @@ import Ouroboros.Consensus.Ledger.Extended
 import Ouroboros.Consensus.Node (ProtocolInfo (..))
 import System.FilePath ((<.>), (</>))
 import UnliftIO qualified
-import UnliftIO.Directory (XdgDirectory (..), getXdgDirectory)
+import UnliftIO.Directory (XdgDirectory (..), getXdgDirectory, createDirectoryIfMissing)
 
 writeLedgerSnapshot :: App ()
 writeLedgerSnapshot = do
@@ -32,8 +32,9 @@ writeLedgerSnapshot = do
     UnliftIO.atomically (readTVar ledger')
   protoInfo <- asks Cfg.cfgProtocolInfo
 
-  -- Look up XDG state dir
+  -- Generate ledger file path
   ledgerDir' <- ledgerDir
+  createDirectoryIfMissing True ledgerDir'
   let
     ledgerFile = ledgerSnapshotFile ledgerState ledgerDir'
 
@@ -53,7 +54,6 @@ serializeLedger protoInfo (Cfg.LedgerState ledgerState) =
 
 ledgerDir :: App FilePath
 ledgerDir = do
-  -- Look up XDG state dir
   stateDir <- getXdgDirectory XdgState "cardano-indexer-starter"
   pure (stateDir </> "ledger")
 
@@ -66,3 +66,4 @@ ledgerSnapshotFile ledgerState baseDir =
       case headerStatePoint header of
         GenesisPoint -> "0"
         BlockPoint (SlotNo slotNo') _ -> show slotNo'
+
