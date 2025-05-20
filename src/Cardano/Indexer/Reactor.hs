@@ -14,14 +14,15 @@ import Cardano.Indexer.Config
 import Cardano.Indexer.Config qualified as Cfg
 
 import Cardano.BM.Trace (appendName, logError)
-import Cardano.Indexer.Ledger (writeLedgerSnapshot)
-import Control.Concurrent.Class.MonadSTM.Strict (readTBQueue, readTVar, writeTVar)
-import Ouroboros.Consensus.Block (BlockNo (..), WithOrigin (..), blockNo)
+import Cardano.Indexer.Ledger (readLedgerSnapshot, writeLedgerSnapshot)
+import Control.Concurrent.Class.MonadSTM.Strict qualified as STM
+import Ouroboros.Consensus.Block qualified as Block
+import Ouroboros.Consensus.HeaderValidation (headerStateBlockNo, headerStatePoint)
 import Ouroboros.Consensus.Ledger.Abstract (tickThenReapply)
-import Ouroboros.Consensus.Ledger.Extended (ExtLedgerCfg (..))
+import Ouroboros.Consensus.Ledger.Extended (ExtLedgerCfg (..), ExtLedgerState (..))
 import Ouroboros.Consensus.Node (ProtocolInfo (..))
-import Ouroboros.Network.Block (Point (..), Tip (..), genesisPoint, getTipBlockNo)
-import Ouroboros.Network.Point (WithOrigin (..), withOrigin)
+import Ouroboros.Network.Block (Tip (..), getTipBlockNo)
+import Ouroboros.Network.Point (withOrigin)
 import UnliftIO (atomically, hFlush)
 import Prelude hiding (atomically)
 
@@ -29,7 +30,7 @@ runReactor :: App ()
 runReactor = loop =<< asks Cfg.cfgEvents
   where
     loop queue = do
-      msg <- atomically $ readTBQueue (Cfg.unReactorQueue queue)
+      msg <- atomically $ STM.readTBQueue (Cfg.unReactorQueue queue)
       res <- runReactorAction msg
       case msg of
         Cfg.Finish -> pure res
@@ -44,10 +45,27 @@ runReactorAction (Cfg.RollbackBlock serverTip point whenFinished) = rollbackBloc
 init :: (StandardPoint -> IO ()) -> App ()
 init whenFinished = do
   tracer <- asks Cfg.cfgTrace
+  ledgerStateVar <- asks Cfg.cfgLedgerState
+
+  liftIO $
+    logError (appendName "Reactor" tracer) "Received initialization signal"
+
+  -- Read ledger state from filesystem
+  maybeLedgerState <- readLedgerSnapshot
+  -- Set ledger to previous state if it couldn't be read
+  ledgerState <- parseLedgerState maybeLedgerState ledgerStateVar
+  -- Update the application state
+  atomically (STM.writeTVar ledgerStateVar ledgerState)
+
+  -- Look up the client point from ledger state
+  let
+    startPoint = headerStatePoint . headerState . Cfg.unLedgerState $ ledgerState
 
   liftIO $ do
-    logError (appendName "Reactor" tracer) "Received initialization signal"
-    whenFinished genesisPoint
+    whenFinished startPoint
+  where
+    parseLedgerState (Just ledger) _ = pure ledger
+    parseLedgerState Nothing ledgerStateVar = liftIO (STM.readTVarIO ledgerStateVar)
 
 writeBlock :: StandardServerTip -> StandardBlock -> App ()
 writeBlock serverTip block = do
@@ -61,11 +79,11 @@ applyBlock block = do
   protoInfo <- asks Cfg.cfgProtocolInfo
   ledger <- asks Cfg.cfgLedgerState
   atomically $ do
-    ledgerState <- readTVar ledger
+    ledgerState <- STM.readTVar ledger
 
     let
       ledgerState' = applyLedgerState protoInfo block ledgerState
-    writeTVar ledger ledgerState'
+    STM.writeTVar ledger ledgerState'
     pure ledgerState'
 
 applyLedgerState
@@ -82,15 +100,14 @@ reportBlock :: (MonadIO io) => StandardServerTip -> StandardBlock -> io ()
 reportBlock (Cfg.ServerTip serverTip) clientBlock = do
   let
     -- Get the block number
-    (BlockNo blockNo') = blockNo clientBlock
+    (Block.BlockNo blockNo') = Block.blockNo clientBlock
     -- Tip block number
     serverBlockNo =
       case serverTip of
         TipGenesis -> "Genesis"
-        Tip _ _ (BlockNo serverBlockNo') -> textShow serverBlockNo'
+        Tip _ _ (Block.BlockNo serverBlockNo') -> textShow serverBlockNo'
     -- Are we close the tip?
-    upToDate = blockNo' + 500 >= withOrigin 0 unBlockNo (getTipBlockNo serverTip)
-
+    upToDate = blockNo' + 500 >= withOrigin 0 Block.unBlockNo (getTipBlockNo serverTip)
   when (blockNo' `mod` 500 == 0 || upToDate) $ do
     putStr $
       "\rReceived block: "
@@ -107,35 +124,54 @@ rollbackBlock
   -> App ()
 rollbackBlock serverTip point whenFinished = do
   protoInfo <- asks Cfg.cfgProtocolInfo
+  ledgerStateVar <- asks Cfg.cfgLedgerState
 
+  -- Roll back ledger state
+  newLedgerState <-
+    atomically $ do
+      ledgerState <- STM.readTVar ledgerStateVar
+
+      -- Lookup the ledger state point
+      let
+        statePoint = headerStatePoint . headerState . Cfg.unLedgerState $ ledgerState
+        newInitState = Cfg.LedgerState (pInfoInitLedger protoInfo)
+
+      -- If we're already at the rollback point, we don't need to rollback any
+      -- further
+      if point == statePoint
+        then pure ledgerState
+        else do
+          STM.writeTVar ledgerStateVar newInitState
+          pure newInitState
+
+  reportRollback serverTip newLedgerState
+  liftIO $ whenFinished serverTip point
+
+reportRollback :: StandardServerTip -> LedgerState -> App ()
+reportRollback serverTip ledgerState = do
   let
     -- Get the block number
     rollbackBlockNo =
-      case getPoint point of
-        Origin -> "Genesis"
-        At block -> textShow block
+      maybe "Genesis" (textShow . Block.unBlockNo)
+        . Block.withOriginToMaybe
+        . headerStateBlockNo
+        . headerState
+        . Cfg.unLedgerState
+        $ ledgerState
 
     -- Tip block number
     serverBlockNo =
       case Cfg.unServerTip serverTip of
         TipGenesis -> "Genesis"
-        Tip _ _ (BlockNo serverBlockNo') -> textShow serverBlockNo'
-
-  -- Roll back ledger state
-  ledgerState <- asks Cfg.cfgLedgerState
-  let
-    newState = Cfg.LedgerState (pInfoInitLedger protoInfo)
-  atomically $ writeTVar ledgerState newState
+        Tip _ _ (Block.BlockNo serverBlockNo') -> textShow serverBlockNo'
 
   putStr $
-    "\rRolled back to block: "
+    "\rRolled back block: "
       <> rollbackBlockNo
       <> " of "
       <> serverBlockNo
       <> "          " -- Add a some extra space to avoid garbled output
   hFlush stdout
-
-  liftIO $ whenFinished serverTip point
 
 finish :: App ()
 finish = do

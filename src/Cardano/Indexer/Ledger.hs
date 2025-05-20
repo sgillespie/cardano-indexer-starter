@@ -1,24 +1,29 @@
 module Cardano.Indexer.Ledger
   ( writeLedgerSnapshot,
+    readLedgerSnapshot,
   ) where
 
 import Cardano.Indexer.Config (App, LedgerState, StandardBlock)
 import Cardano.Indexer.Config qualified as Cfg
 
 import Cardano.BM.Trace (appendName, logError)
-import Cardano.Binary (serialize')
+import Cardano.Binary (DecoderError, decodeFullDecoder', serialize')
 import Cardano.Ledger.BaseTypes (SlotNo (..))
 import Control.Concurrent.Class.MonadSTM.Strict (readTVar)
-import Data.ByteString (writeFile)
+import Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe)
+import Data.ByteString (readFile, writeFile)
+import Data.List.Extra (maximumOn)
 import Ouroboros.Consensus.Block (Point (..))
 import Ouroboros.Consensus.Config (TopLevelConfig (..))
 import Ouroboros.Consensus.HeaderValidation (headerStatePoint)
 import Ouroboros.Consensus.Ledger.Extended
   ( ExtLedgerState (headerState),
+    decodeDiskExtLedgerState,
     encodeDiskExtLedgerState,
   )
 import Ouroboros.Consensus.Node (ProtocolInfo (..))
-import System.FilePath ((<.>), (</>))
+import System.Directory.Extra (listFiles)
+import System.FilePath (dropExtension, takeExtension, takeFileName, (<.>), (</>))
 import UnliftIO qualified
 import UnliftIO.Directory (XdgDirectory (..), createDirectoryIfMissing, getXdgDirectory)
 
@@ -45,6 +50,59 @@ writeLedgerSnapshot = do
   liftIO $ do
     writeFile ledgerFile ledgerBytes
     logError tracer $ "Saved ledger state file: " <> toText ledgerFile
+
+readLedgerSnapshot :: App (Maybe LedgerState)
+readLedgerSnapshot = do
+  protoInfo <- asks Cfg.cfgProtocolInfo
+  tracer <- asks (appendName "Ledger" . Cfg.cfgTrace)
+
+  -- Look up ledger state dir
+  ledgerDir' <- ledgerDir
+  allFiles <- liftIO (listFiles ledgerDir')
+
+  -- Filter state files
+  let
+    stateFiles = filter (\f -> takeExtension f == ".state") allFiles
+    newestStateFile = maximumOnMay findSlotNo stateFiles
+
+  ledgerState <- runMaybeT $ do
+    stateFile <- hoistMaybe newestStateFile
+    -- Load snapshot into memory
+    bytes <- liftIO (readFile stateFile)
+
+    -- Deserialize ledger state
+    case deserializeLedger protoInfo bytes of
+      Right l -> do
+        liftIO . logError tracer $ "Loaded state file: " <> toText stateFile
+        hoistMaybe (Just l)
+      Left err -> do
+        liftIO . logError tracer $ "Could not read state file: " <> show err <> "!"
+        hoistMaybe Nothing
+
+  when (isNothing ledgerState) $
+    liftIO (logError tracer "Starting from genesis")
+
+  pure ledgerState
+  where
+    maximumOnMay _ [] = Nothing
+    maximumOnMay f xs = Just (maximumOn f xs)
+
+    findSlotNo =
+      (readMaybe @Int =<<)
+        . tailMay -- Drop leading '-'
+        . dropWhile (/= '-')
+        . dropExtension
+        . takeFileName
+
+deserializeLedger
+  :: ProtocolInfo StandardBlock
+  -> ByteString
+  -> Either DecoderError LedgerState
+deserializeLedger protoInfo =
+  fmap Cfg.LedgerState
+    . decodeFullDecoder' "LedgerState" (decodeDiskExtLedgerState codecConfig)
+  where
+    codecConfig = topLevelConfigCodec . pInfoConfig $ protoInfo
 
 serializeLedger :: ProtocolInfo StandardBlock -> LedgerState -> ByteString
 serializeLedger protoInfo (Cfg.LedgerState ledgerState) =
